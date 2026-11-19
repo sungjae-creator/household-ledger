@@ -208,17 +208,22 @@ export default function AnalyticsDashboard({
       .sort((a, b) => b.value - a.value);
   }, [monthlyExpenseTransactions, monthlyTotalExpense]);
 
-  // (1-B) [신규 요청] 대분류별 예산 vs 실제 지출 비교 막대 그래프 데이터
-  const budgetVsExpenseData = useMemo(() => {
+  // (1-B) [신규 요청] 대분류별 예산 vs 실제 지출 비교 데이터 및 총계
+  const { budgetVsExpenseData, totalBudgetVsExpense } = useMemo(() => {
     const majors = new Set<string>();
     Object.keys(monthlyBudgets).forEach((m) => majors.add(m));
     categoryMajorData.forEach((item) => majors.add(item.name));
 
-    return Array.from(majors)
+    let sumBudget = 0;
+    let sumExpense = 0;
+
+    const list = Array.from(majors)
       .map((major) => {
         const budget = monthlyBudgets[major] || 0;
         const expenseItem = categoryMajorData.find((item) => item.name === major);
         const expense = expenseItem ? expenseItem.value : 0;
+        sumBudget += budget;
+        sumExpense += expense;
         return {
           major,
           budget,
@@ -227,6 +232,15 @@ export default function AnalyticsDashboard({
         };
       })
       .sort((a, b) => b.budget - a.budget || b.expense - a.expense);
+
+    return {
+      budgetVsExpenseData: list,
+      totalBudgetVsExpense: {
+        totalBudget: sumBudget,
+        totalExpense: sumExpense,
+        totalRemaining: sumBudget - sumExpense,
+      },
+    };
   }, [monthlyBudgets, categoryMajorData]);
 
   // (2) [신규 요청 반영] 지출분석: 소분류 상위 10개 랭킹 (0점 좌측 정렬 & 10개 제한)
@@ -251,7 +265,7 @@ export default function AnalyticsDashboard({
         percentage: monthlyTotalExpense > 0 ? ((data.amount / monthlyTotalExpense) * 100).toFixed(1) : '0',
       }))
       .sort((a, b) => b.amount - a.amount)
-      .slice(0, 10); // [요청 반영] 상위 10개로 제한
+      .slice(0, 10); // 상위 10개로 제한
   }, [monthlyExpenseTransactions, monthlyTotalExpense]);
 
   // (3) 카드별 지출 금액 통계 데이터 (카드로 결제된 내역만 필터링)
@@ -444,7 +458,7 @@ export default function AnalyticsDashboard({
             <div className="space-y-6">
               {/* 상단 2열 그리드: [지출 현황] vs [지출분석] */}
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                {/* 1) [제목 변경 & 탭 추가] 지출 현황 (파이형 vs 예산 비교 그래프형) */}
+                {/* 1) [지출 현황] 파이형 vs 예산 비교 그래프형 */}
                 <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-xs flex flex-col justify-between">
                   <div>
                     <div className="flex items-center justify-between mb-4">
@@ -453,7 +467,7 @@ export default function AnalyticsDashboard({
                         지출 현황
                       </h3>
 
-                      {/* [신규 요청] 파이형 / 그래프형 선택 탭 토글 */}
+                      {/* 파이형 / 그래프형 선택 탭 토글 */}
                       <div className="flex items-center bg-slate-100 p-0.5 rounded-lg border border-slate-200">
                         <button
                           onClick={() => setExpenseViewType('PIE')}
@@ -535,7 +549,7 @@ export default function AnalyticsDashboard({
                       </>
                     )}
 
-                    {/* [옵션 B: 신규 요청] 예산과 실제 지출을 비교해 보여주는 그래프 */}
+                    {/* [옵션 B: 사용자 요청 완벽 반영] 예산과 실제 지출을 비교하는 그래프 & 테이블 뷰 */}
                     {expenseViewType === 'BAR' && (
                       <>
                         <div className="h-64">
@@ -564,28 +578,78 @@ export default function AnalyticsDashboard({
                           </ResponsiveContainer>
                         </div>
 
-                        {/* 대분류별 예산 vs 지출 상세 비교 표 */}
-                        <div className="mt-4 space-y-1.5 max-h-48 overflow-y-auto pr-1">
-                          {budgetVsExpenseData.map((item) => (
-                            <div
-                              key={item.major}
-                              className="flex items-center justify-between text-xs py-1.5 border-b border-slate-50 last:border-none"
-                            >
-                              <span className="font-semibold text-slate-700">{item.major}</span>
-                              <div className="flex items-center gap-2 font-mono">
-                                <span className="text-blue-600">예산 {item.budget.toLocaleString()}원</span>
-                                <span className="text-slate-300">/</span>
-                                <span className="text-red-500">지출 {item.expense.toLocaleString()}원</span>
-                              </div>
-                            </div>
-                          ))}
+                        {/* [요청 반영] 한 줄 슬래시(/) 제거 -> 깔끔하고 정돈된 테이블(표) 구조로 변경 */}
+                        <div className="mt-4 border border-slate-200 rounded-xl overflow-hidden shadow-2xs">
+                          <div className="max-h-52 overflow-y-auto">
+                            <table className="w-full text-xs text-right border-collapse">
+                              <thead className="bg-slate-50 text-slate-600 font-bold border-b border-slate-200 sticky top-0 z-10 shadow-2xs">
+                                <tr>
+                                  <th className="px-3 py-2 text-left whitespace-nowrap bg-slate-50">대분류</th>
+                                  <th className="px-3 py-2 text-blue-600 whitespace-nowrap bg-slate-50">예산</th>
+                                  <th className="px-3 py-2 text-red-600 whitespace-nowrap bg-slate-50">실제 지출</th>
+                                  <th className="px-3 py-2 whitespace-nowrap bg-slate-50">남은 돈</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-slate-100 font-mono">
+                                {budgetVsExpenseData.map((item) => {
+                                  const remaining = item.budget - item.expense;
+                                  return (
+                                    <tr key={item.major} className="hover:bg-slate-50/70 transition-colors">
+                                      <td className="px-3 py-2 text-left font-sans font-semibold text-slate-800 whitespace-nowrap">
+                                        {item.major}
+                                      </td>
+                                      <td className="px-3 py-2 text-blue-600 font-medium whitespace-nowrap">
+                                        {item.budget.toLocaleString()}원
+                                      </td>
+                                      <td className="px-3 py-2 text-red-600 font-medium whitespace-nowrap">
+                                        {item.expense.toLocaleString()}원
+                                      </td>
+                                      <td
+                                        className={`px-3 py-2 font-bold whitespace-nowrap ${
+                                          remaining < 0
+                                            ? 'text-rose-600'
+                                            : remaining > 0
+                                            ? 'text-emerald-700'
+                                            : 'text-slate-400'
+                                        }`}
+                                      >
+                                        {remaining > 0 ? `+${remaining.toLocaleString()}원` : `${remaining.toLocaleString()}원`}
+                                      </td>
+                                    </tr>
+                                  );
+                                })}
+                              </tbody>
+                              <tfoot className="bg-slate-100 font-bold border-t border-slate-200 sticky bottom-0 z-10 shadow-xs">
+                                <tr>
+                                  <td className="px-3 py-2 text-left font-sans text-slate-900 whitespace-nowrap bg-slate-100">
+                                    합계
+                                  </td>
+                                  <td className="px-3 py-2 text-blue-700 whitespace-nowrap bg-slate-100">
+                                    {totalBudgetVsExpense.totalBudget.toLocaleString()}원
+                                  </td>
+                                  <td className="px-3 py-2 text-red-700 whitespace-nowrap bg-slate-100">
+                                    {totalBudgetVsExpense.totalExpense.toLocaleString()}원
+                                  </td>
+                                  <td
+                                    className={`px-3 py-2 whitespace-nowrap bg-slate-100 ${
+                                      totalBudgetVsExpense.totalRemaining < 0 ? 'text-rose-600' : 'text-emerald-700'
+                                    }`}
+                                  >
+                                    {totalBudgetVsExpense.totalRemaining > 0
+                                      ? `+${totalBudgetVsExpense.totalRemaining.toLocaleString()}원`
+                                      : `${totalBudgetVsExpense.totalRemaining.toLocaleString()}원`}
+                                  </td>
+                                </tr>
+                              </tfoot>
+                            </table>
+                          </div>
                         </div>
                       </>
                     )}
                   </div>
                 </div>
 
-                {/* 2) [제목 변경: 지출분석 & 0점 좌측 정렬 & 10개 제한] */}
+                {/* 2) 지출분석 (0점 좌측 정렬 & 10개 제한) */}
                 <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-xs flex flex-col justify-between">
                   <div>
                     <div className="flex items-center justify-between mb-4">
