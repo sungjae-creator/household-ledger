@@ -13,7 +13,7 @@ interface ExcelImportProps {
 }
 
 /**
- * 네이버 가계부 및 엑셀(XLSX/CSV) 가져오기 & 내보내기 컴포넌트
+ * 네이버 가계부 완벽 호환 엑셀(XLSX/CSV) 가져오기 & 내보내기 컴포넌트
  */
 export default function ExcelImportModal({
   categories,
@@ -27,6 +27,148 @@ export default function ExcelImportModal({
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [previewData, setPreviewData] = useState<any[]>([]);
+
+  /**
+   * 네이버 가계부 및 표준 엑셀 시트 2차원 배열을 정제된 거래 데이터 객체 배열로 변환하는 정밀 파서
+   */
+  const parseRowsFromSheet = (rawRows: any[][]): any[] => {
+    if (!rawRows || rawRows.length === 0) return [];
+
+    // 1. 실제 헤더 행 탐색 ('날짜' 또는 '일자'가 포함된 행 찾기)
+    let headerIndex = -1;
+    for (let i = 0; i < Math.min(rawRows.length, 10); i++) {
+      const row = rawRows[i];
+      if (Array.isArray(row)) {
+        const hasDateHeader = row.some((cell) => {
+          const str = String(cell).trim();
+          return str === '날짜' || str === '일자' || str === '거래일시';
+        });
+        if (hasDateHeader) {
+          headerIndex = i;
+          break;
+        }
+      }
+    }
+
+    if (headerIndex === -1) {
+      // 헤더를 못 찾은 경우 첫 번째 행을 헤더로 간주
+      headerIndex = 0;
+    }
+
+    const headers = rawRows[headerIndex].map((h) => String(h || '').trim());
+    const dataRows = rawRows.slice(headerIndex + 1);
+
+    const parsedResults: any[] = [];
+
+    dataRows.forEach((row) => {
+      if (!Array.isArray(row) || row.length === 0) return;
+
+      // 행 데이터를 객체로 매핑
+      const rowObj: { [key: string]: any } = {};
+      headers.forEach((h, idx) => {
+        if (h) rowObj[h] = row[idx] !== undefined ? row[idx] : '';
+      });
+
+      // 1) 날짜 확인 및 요약 행 필터링
+      const rawDateStr = String(rowObj['날짜'] || rowObj['일자'] || '').trim();
+      if (!rawDateStr) return; // 날짜 없는 행 무시
+
+      // '합계', '수입 합계', '카드대금' 등의 요약/안내 행 건너뛰기
+      const usagePlace = String(rowObj['사용처'] || rowObj['사용내역'] || rowObj['가맹점'] || '').trim();
+      if (
+        rawDateStr.includes('합계') ||
+        rawDateStr.includes('수입') ||
+        rawDateStr.includes('*') ||
+        usagePlace.includes('합계')
+      ) {
+        return;
+      }
+
+      // 2) 날짜 표준 포맷 (YYYY-MM-DD) 변환
+      let formattedDate = rawDateStr;
+      // '2026년11월01일' 형태 매칭
+      const koreanDateMatch = rawDateStr.match(/(\d{4})년\s*(\d{1,2})월\s*(\d{1,2})일/);
+      if (koreanDateMatch) {
+        const year = koreanDateMatch[1];
+        const month = koreanDateMatch[2].padStart(2, '0');
+        const day = koreanDateMatch[3].padStart(2, '0');
+        formattedDate = `${year}-${month}-${day}`;
+      } else {
+        formattedDate = rawDateStr.replace(/\./g, '-').replace(/\//g, '-');
+        if (formattedDate.length === 8 && !formattedDate.includes('-')) {
+          formattedDate = `${formattedDate.slice(0, 4)}-${formattedDate.slice(4, 6)}-${formattedDate.slice(6, 8)}`;
+        }
+      }
+
+      // 3) 금액 및 결제수단 파싱 (네이버 가계부의 현금/카드/출금통장/카드분류 컬럼 분리 지원)
+      let amount = 0;
+      let paymentName = '현금';
+      let paymentType: 'CARD' | 'BANK' | 'CASH' = 'CASH';
+
+      const cardVal = parseFloat(String(rowObj['카드'] || 0).replace(/,/g, ''));
+      const cashVal = parseFloat(String(rowObj['현금'] || 0).replace(/,/g, ''));
+      const incomeVal = parseFloat(String(rowObj['수입'] || rowObj['수입금액'] || 0).replace(/,/g, ''));
+      const expenseVal = parseFloat(String(rowObj['지출'] || rowObj['지출금액'] || rowObj['금액'] || 0).replace(/,/g, ''));
+
+      let isIncome = false;
+
+      if (cardVal > 0) {
+        amount = cardVal;
+        paymentName = String(rowObj['카드분류'] || '신용카드').trim() || '신용카드';
+        paymentType = 'CARD';
+      } else if (cashVal > 0) {
+        amount = cashVal;
+        const bankOrCash = String(rowObj['출금통장'] || '현금').trim() || '현금';
+        paymentName = bankOrCash;
+        paymentType = bankOrCash.includes('통장') || bankOrCash.includes('은행') ? 'BANK' : 'CASH';
+      } else if (incomeVal > 0) {
+        amount = incomeVal;
+        isIncome = true;
+        paymentName = String(rowObj['결제수단'] || rowObj['자산'] || '은행통장').trim() || '은행통장';
+        paymentType = 'BANK';
+      } else if (expenseVal > 0) {
+        amount = expenseVal;
+        paymentName = String(rowObj['결제수단'] || rowObj['자산'] || '현금').trim() || '현금';
+        paymentType = paymentName.includes('카드') ? 'CARD' : paymentName.includes('통장') || paymentName.includes('은행') ? 'BANK' : 'CASH';
+      }
+
+      if (amount <= 0) return; // 금액이 0인 내역 제외
+
+      // 4) 카테고리 대분류/소분류 분리 (네이버 가계부 '식비>부식' 형태 지원)
+      let major = '기타';
+      let sub = '기타';
+
+      const combinedCategory = String(rowObj['분류'] || '').trim();
+      if (combinedCategory.includes('>')) {
+        const parts = combinedCategory.split('>');
+        major = parts[0].trim();
+        sub = parts[1].trim();
+      } else {
+        major = String(rowObj['대분류'] || rowObj['대분류명'] || combinedCategory || '기타').trim();
+        sub = String(rowObj['소분류'] || rowObj['소분류명'] || '기타').trim();
+      }
+
+      // 5) 사용처 및 메모
+      const description = String(
+        rowObj['사용처'] || rowObj['가맹점'] || rowObj['내용'] || rowObj['내역'] || '미지정'
+      ).trim();
+      const memo = String(rowObj['사용내역'] || rowObj['메모'] || rowObj['비고'] || '').trim();
+
+      parsedResults.push({
+        date: formattedDate,
+        isIncome,
+        amount,
+        major,
+        sub,
+        paymentName,
+        paymentType,
+        description,
+        memo,
+      });
+    });
+
+    return parsedResults;
+  };
 
   /**
    * 파일 선택 핸들러
@@ -46,8 +188,9 @@ export default function ExcelImportModal({
           const wb = XLSX.read(bstr, { type: 'binary', cellDates: true });
           const wsname = wb.SheetNames[0];
           const ws = wb.Sheets[wsname];
-          const data = XLSX.utils.sheet_to_json(ws, { defval: '' });
-          setPreviewData(data.slice(0, 5)); // 상위 5건 미리보기
+          const rawRows: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+          const parsed = parseRowsFromSheet(rawRows);
+          setPreviewData(parsed.slice(0, 5)); // 상위 5건 미리보기
         } catch (err: unknown) {
           if (err instanceof Error) {
             setErrorMessage(`파일을 읽는 중 오류가 발생했습니다: ${err.message}`);
@@ -89,10 +232,12 @@ export default function ExcelImportModal({
           const wb = XLSX.read(bstr, { type: 'binary', cellDates: true });
           const wsname = wb.SheetNames[0];
           const ws = wb.Sheets[wsname];
-          const rows: any[] = XLSX.utils.sheet_to_json(ws, { defval: '' });
+          const rawRows: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
 
-          if (rows.length === 0) {
-            throw new Error('파일에 데이터가 없습니다.');
+          const parsedItems = parseRowsFromSheet(rawRows);
+
+          if (parsedItems.length === 0) {
+            throw new Error('파일에서 유효한 거래 내역을 찾을 수 없습니다.');
           }
 
           // 최신 카테고리 및 결제수단 맵 구성
@@ -111,7 +256,7 @@ export default function ExcelImportModal({
 
           setStatusMessage('신규 카테고리 및 결제수단을 확인하고 동기화하는 중...');
 
-          // 1. 파일 내 새로운 카테고리/결제수단 수집
+          // 1. 신규 카테고리 및 결제수단 수집
           const newCategoriesToInsert: {
             user_id: string;
             type: 'INCOME' | 'EXPENSE';
@@ -124,47 +269,32 @@ export default function ExcelImportModal({
             user_id: string;
             name: string;
             type: 'CARD' | 'BANK' | 'CASH' | 'ETC';
+            balance: number;
           }[] = [];
 
           const seenNewCats = new Set<string>();
           const seenNewPayments = new Set<string>();
 
-          rows.forEach((row) => {
-            // 네이버 가계부 컬럼 별칭 지원
-            const major = (row['대분류'] || row['대분류명'] || '기타').toString().trim();
-            const sub = (row['소분류'] || row['소분류명'] || '기타').toString().trim();
-            const payment = (
-              row['결제수단'] ||
-              row['자산'] ||
-              row['결제방법'] ||
-              '현금'
-            )
-              .toString()
-              .trim();
-            
-            // 수입/지출 판단
-            const rawIncome = parseFloat(String(row['수입'] || row['수입금액'] || 0).replace(/,/g, ''));
-            const rawExpense = parseFloat(String(row['지출'] || row['지출금액'] || row['금액'] || 0).replace(/,/g, ''));
-            const type = rawIncome > 0 && rawExpense <= 0 ? 'INCOME' : 'EXPENSE';
-
-            const catKey = `${major}_${sub}`;
+          parsedItems.forEach((item) => {
+            const catKey = `${item.major}_${item.sub}`;
             if (!categoryMap.has(catKey) && !seenNewCats.has(catKey)) {
               seenNewCats.add(catKey);
               newCategoriesToInsert.push({
                 user_id: user.id,
-                type,
-                major_name: major,
-                sub_name: sub,
-                color: type === 'INCOME' ? '#10B981' : '#EF4444',
+                type: item.isIncome ? 'INCOME' : 'EXPENSE',
+                major_name: item.major,
+                sub_name: item.sub,
+                color: item.isIncome ? '#10B981' : '#EF4444',
               });
             }
 
-            if (!paymentMap.has(payment) && !seenNewPayments.has(payment)) {
-              seenNewPayments.add(payment);
+            if (!paymentMap.has(item.paymentName) && !seenNewPayments.has(item.paymentName)) {
+              seenNewPayments.add(item.paymentName);
               newPaymentsToInsert.push({
                 user_id: user.id,
-                name: payment,
-                type: payment.includes('카드') ? 'CARD' : payment.includes('통장') || payment.includes('은행') ? 'BANK' : 'CASH',
+                name: item.paymentName,
+                type: item.paymentType,
+                balance: 0,
               });
             }
           });
@@ -195,64 +325,22 @@ export default function ExcelImportModal({
             }
           }
 
-          setStatusMessage('거래 내역 데이터를 변환하고 등록하는 중...');
+          setStatusMessage('거래 내역 데이터를 가계부에 등록하는 중...');
 
-          // 2. 거래내역 변환 및 일괄 삽입
-          const transactionsToInsert = rows.map((row) => {
-            // 날짜 변환 (YYYY-MM-DD)
-            let dateStr = row['날짜'] || row['일자'] || row['거래일시'] || new Date().toISOString().split('T')[0];
-            if (dateStr instanceof Date) {
-              dateStr = dateStr.toISOString().split('T')[0];
-            } else {
-              dateStr = String(dateStr).trim().replace(/\./g, '-').replace(/\//g, '-');
-              if (dateStr.length === 8 && !dateStr.includes('-')) {
-                // YYYYMMDD 형태 지원
-                dateStr = `${dateStr.slice(0, 4)}-${dateStr.slice(4, 6)}-${dateStr.slice(6, 8)}`;
-              }
-            }
+          // 2. 거래내역 일괄 삽입
+          const transactionsToInsert = parsedItems.map((item) => ({
+            user_id: user.id,
+            transaction_date: item.date,
+            type: item.isIncome ? 'INCOME' : 'EXPENSE',
+            amount: item.amount,
+            category_id: categoryMap.get(`${item.major}_${item.sub}`) || null,
+            payment_method_id: paymentMap.get(item.paymentName) || null,
+            description: item.description,
+            memo: item.memo || null,
+            exclude_from_stats: false,
+          }));
 
-            const rawIncome = parseFloat(String(row['수입'] || row['수입금액'] || 0).replace(/,/g, ''));
-            const rawExpense = parseFloat(String(row['지출'] || row['지출금액'] || row['금액'] || 0).replace(/,/g, ''));
-            const isIncome = rawIncome > 0 && rawExpense <= 0;
-            const amount = isIncome ? rawIncome : (rawExpense > 0 ? rawExpense : Math.abs(rawIncome));
-
-            const major = (row['대분류'] || row['대분류명'] || '기타').toString().trim();
-            const sub = (row['소분류'] || row['소분류명'] || '기타').toString().trim();
-            const payment = (
-              row['결제수단'] ||
-              row['자산'] ||
-              row['결제방법'] ||
-              '현금'
-            )
-              .toString()
-              .trim();
-
-            const description = (
-              row['사용처'] ||
-              row['내역'] ||
-              row['내용'] ||
-              row['가맹점'] ||
-              '미지정'
-            )
-              .toString()
-              .trim();
-
-            const memo = (row['메모'] || row['비고'] || '').toString().trim();
-
-            return {
-              user_id: user.id,
-              transaction_date: dateStr,
-              type: isIncome ? 'INCOME' : 'EXPENSE',
-              amount: isNaN(amount) ? 0 : amount,
-              category_id: categoryMap.get(`${major}_${sub}`) || null,
-              payment_method_id: paymentMap.get(payment) || null,
-              description,
-              memo: memo || null,
-              exclude_from_stats: false,
-            };
-          }).filter((t) => t.amount > 0);
-
-          // 100개씩 청크(Chunk)로 나누어 배치 저장
+          // 100개씩 청크로 나누어 배치 저장
           const chunkSize = 100;
           for (let i = 0; i < transactionsToInsert.length; i += chunkSize) {
             const chunk = transactionsToInsert.slice(i, i + chunkSize);
@@ -261,7 +349,7 @@ export default function ExcelImportModal({
           }
 
           setStatusMessage(
-            `성공적으로 총 ${transactionsToInsert.length}건의 내역을 가져왔습니다!`
+            `성공적으로 네이버 가계부 내역 총 ${transactionsToInsert.length}건을 가져왔습니다!`
           );
           setFile(null);
           setPreviewData([]);
@@ -305,9 +393,9 @@ export default function ExcelImportModal({
       {
         날짜: '2026-11-18',
         수입지출구분: '수입',
-        대분류: '급여',
-        소분류: '기본급',
-        결제수단: '은행계좌',
+        대분류: '주수입',
+        소분류: '급여',
+        결제수단: '주거래 은행',
         사용처: '회사',
         금액: 3500000,
         메모: '11월 급여 입금',
@@ -330,7 +418,7 @@ export default function ExcelImportModal({
               네이버 가계부 / 엑셀 데이터 가져오기 (Import)
             </h2>
             <p className="text-sm text-slate-500 mt-1">
-              네이버 가계부에서 다운받은 엑셀(.xlsx)이나 CSV 파일을 업로드하면 과거 내역을 한 번에 등록할 수 있습니다.
+              네이버 가계부에서 다운받은 원본 엑셀(.xlsx)이나 CSV 파일을 그대로 올리시면 자동으로 분석하여 등록합니다.
             </p>
           </div>
 
@@ -372,10 +460,10 @@ export default function ExcelImportModal({
               <Upload className="w-8 h-8" />
             </div>
             <span className="text-sm font-semibold text-slate-700">
-              {file ? file.name : '클릭하여 엑셀 파일(.xlsx, .csv) 선택'}
+              {file ? file.name : '클릭하여 네이버 가계부 파일(.xlsx, .csv) 선택'}
             </span>
             <span className="text-xs text-slate-400 mt-1">
-              네이버 가계부 백업 파일 또는 표준 엑셀 파일을 지원합니다
+              네이버 가계부 원본 백업 파일(지출현황) 또는 표준 엑셀 양식을 100% 자동 지원합니다
             </span>
           </label>
         </div>
@@ -384,27 +472,35 @@ export default function ExcelImportModal({
         {previewData.length > 0 && (
           <div className="mt-6">
             <h4 className="text-xs font-bold text-slate-600 uppercase tracking-wider mb-2">
-              데이터 미리보기 (상위 5건)
+              변환 미리보기 (상위 5건)
             </h4>
             <div className="overflow-x-auto border border-slate-200 rounded-xl">
               <table className="w-full text-left text-xs text-slate-600">
                 <thead className="bg-slate-50 text-slate-700 font-bold border-b border-slate-200">
                   <tr>
-                    {Object.keys(previewData[0]).slice(0, 6).map((col) => (
-                      <th key={col} className="px-4 py-2">
-                        {col}
-                      </th>
-                    ))}
+                    <th className="px-4 py-2">날짜</th>
+                    <th className="px-4 py-2">사용처</th>
+                    <th className="px-4 py-2">분류</th>
+                    <th className="px-4 py-2">결제수단</th>
+                    <th className="px-4 py-2 text-right">금액</th>
+                    <th className="px-4 py-2">상세내용</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {previewData.map((row, idx) => (
                     <tr key={idx} className="hover:bg-slate-50">
-                      {Object.values(row).slice(0, 6).map((val: any, vIdx) => (
-                        <td key={vIdx} className="px-4 py-2 truncate max-w-[150px]">
-                          {String(val)}
-                        </td>
-                      ))}
+                      <td className="px-4 py-2 font-mono">{row.date}</td>
+                      <td className="px-4 py-2 font-semibold text-slate-800">{row.description}</td>
+                      <td className="px-4 py-2">
+                        <span className="px-2 py-0.5 bg-slate-100 rounded text-slate-700">
+                          {row.major} &gt; {row.sub}
+                        </span>
+                      </td>
+                      <td className="px-4 py-2">{row.paymentName}</td>
+                      <td className="px-4 py-2 text-right font-bold text-red-600">
+                        {row.amount.toLocaleString()}원
+                      </td>
+                      <td className="px-4 py-2 text-slate-400">{row.memo || '-'}</td>
                     </tr>
                   ))}
                 </tbody>
