@@ -2,13 +2,12 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
-import { Wallet, LogIn, Lock, Mail, AlertCircle } from 'lucide-react';
+import { Wallet, LogIn, Lock, Mail, AlertCircle, ShieldCheck } from 'lucide-react';
 
 /**
  * 로그인 페이지 컴포넌트
- * 이메일과 비밀번호를 입력받아 Supabase Auth로 인증을 진행합니다.
+ * (개인 전용 프라이빗 가계부: 타인의 신규 회원가입이 원천 차단된 안전한 개인 시스템)
  */
 export default function LoginPage() {
   const router = useRouter();
@@ -31,14 +30,12 @@ export default function LoginPage() {
     setErrorMessage(null);
 
     try {
-      // Supabase 이메일/비밀번호 로그인 API 호출
       const { data, error } = await supabase.auth.signInWithPassword({
         email,
         password,
       });
 
       if (error) {
-        // 오류 메시지를 친절한 한국어로 변환하여 안내
         if (error.message.includes('Invalid login credentials')) {
           setErrorMessage('이메일 또는 비밀번호가 올바르지 않습니다.');
         } else if (error.message.includes('Email not confirmed')) {
@@ -50,7 +47,6 @@ export default function LoginPage() {
       }
 
       if (data.user) {
-        // 로그인 성공 시 메인 대시보드로 이동
         router.push('/');
         router.refresh();
       }
@@ -74,9 +70,10 @@ export default function LoginPage() {
             <Wallet className="w-8 h-8" />
           </div>
           <h1 className="text-2xl font-bold text-slate-800">스마트 웹 가계부</h1>
-          <p className="text-sm text-slate-500 mt-1">
-            기록과 분석을 한곳에서 안전하게 관리하세요
-          </p>
+          <div className="flex items-center gap-1.5 mt-1.5 px-3 py-1 bg-slate-100 text-slate-600 rounded-full text-xs font-semibold">
+            <ShieldCheck className="w-3.5 h-3.5 text-blue-600" />
+            <span>개인 전용 프라이빗 시스템</span>
+          </div>
         </div>
 
         {/* 에러 메시지 알림창 */}
@@ -102,7 +99,7 @@ export default function LoginPage() {
                 required
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder="example@email.com"
+                placeholder="등록된 이메일을 입력하세요"
                 className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition"
               />
             </div>
@@ -137,16 +134,10 @@ export default function LoginPage() {
           </button>
         </form>
 
-        {/* 회원가입 페이지 이동 링크 */}
+        {/* 외부인 신규 가입 차단 안내 (회원가입 링크 제거) */}
         <div className="mt-6 pt-6 border-t border-slate-100 text-center">
-          <p className="text-sm text-slate-600">
-            아직 계정이 없으신가요?{' '}
-            <Link
-              href="/signup"
-              className="text-blue-600 hover:text-blue-700 font-semibold ml-1 underline underline-offset-4"
-            >
-              회원가입하기
-            </Link>
+          <p className="text-xs text-slate-400">
+            🔒 본 서비스는 개인 전용으로 타인의 신규 회원가입이 차단되어 있습니다.
           </p>
         </div>
       </div>
