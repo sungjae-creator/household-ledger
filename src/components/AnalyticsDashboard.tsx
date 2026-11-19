@@ -52,14 +52,6 @@ const COLORS = [
 
 /**
  * 엑셀 및 네이버 가계부를 뛰어넘는 정밀 통계 & 대시보드 컴포넌트
- * 
- * 1. 월간 분석:
- *    - 대분류 지출 도넛 차트
- *    - 소분류 상위 랭킹 막대 그래프
- *    - 카드별 지출 실적 분석
- * 2. 연간 종합 분석:
- *    - 1월~12월 월별 수입 vs 지출 비교 막대 그래프
- *    - 연간 누적 통계 요약
  */
 export default function AnalyticsDashboard({
   transactions,
@@ -72,6 +64,12 @@ export default function AnalyticsDashboard({
   // 대시보드 뷰 모드: 'MONTHLY' (월간 분석) | 'YEARLY' (연간 분석)
   const [viewMode, setViewMode] = useState<'MONTHLY' | 'YEARLY'>('MONTHLY');
 
+  // [신규 요청] 지출 현황 뷰 형태: 'PIE' (파이형) | 'BAR' (예산 vs 지출 비교 그래프형)
+  const [expenseViewType, setExpenseViewType] = useState<'PIE' | 'BAR'>('PIE');
+
+  // 당월 대분류별 예산 데이터 맵 { '식비': 300000, '주거/통신': 350000 }
+  const [monthlyBudgets, setMonthlyBudgets] = useState<{ [major: string]: number }>({});
+
   // 연간 분석 기준 연도 (기본값: 현재 선택된 월의 연도)
   const initialYear = currentMonth ? parseInt(currentMonth.split('-')[0], 10) : new Date().getFullYear();
   const [selectedYear, setSelectedYear] = useState<number>(initialYear);
@@ -79,6 +77,33 @@ export default function AnalyticsDashboard({
   // 연간 1년치 전체 거래내역 상태
   const [yearlyTransactions, setYearlyTransactions] = useState<Transaction[]>([]);
   const [loadingYearly, setLoadingYearly] = useState<boolean>(false);
+
+  /**
+   * 해당 월의 예산 데이터 불러오기
+   */
+  const fetchMonthlyBudgets = useCallback(async () => {
+    if (!currentMonth) return;
+    try {
+      const { data, error } = await supabase
+        .from('budgets')
+        .select('*')
+        .eq('year_month', currentMonth);
+
+      if (!error && data) {
+        const map: { [major: string]: number } = {};
+        data.forEach((b: any) => {
+          map[b.category_major] = Number(b.amount);
+        });
+        setMonthlyBudgets(map);
+      }
+    } catch (err) {
+      console.error('예산 데이터 조회 실패:', err);
+    }
+  }, [supabase, currentMonth]);
+
+  useEffect(() => {
+    fetchMonthlyBudgets();
+  }, [fetchMonthlyBudgets]);
 
   /**
    * 월간 분석: 이전 달로 이동
@@ -111,7 +136,7 @@ export default function AnalyticsDashboard({
   };
 
   /**
-   * 연간 분석용 1년치 데이터 조회
+   * 연간 1년치 전체 거래내역 불러오기
    */
   const fetchYearlyData = useCallback(async (year: number) => {
     try {
@@ -126,27 +151,21 @@ export default function AnalyticsDashboard({
           category:categories(*)
         `)
         .gte('transaction_date', startDate)
-        .lt('transaction_date', endDate)
-        .order('transaction_date', { ascending: true });
+        .lt('transaction_date', endDate);
 
       if (error) {
-        console.error('연간 데이터 조회 실패:', error);
+        console.error('연간 거래내역 조회 실패:', error);
       } else {
-        // 결제수단 매핑
-        const mapped = (data || []).map((tx) => ({
-          ...tx,
-          payment_method: paymentMethods.find((p) => p.id === tx.payment_method_id) || null,
-        })) as Transaction[];
-        setYearlyTransactions(mapped);
+        setYearlyTransactions((data || []) as Transaction[]);
       }
     } catch (err) {
-      console.error('연간 데이터 로딩 에러:', err);
+      console.error('연간 통계 로딩 오류:', err);
     } finally {
       setLoadingYearly(false);
     }
-  }, [supabase, paymentMethods]);
+  }, [supabase]);
 
-  // 연간 분석 모드로 전환되거나 연도가 변경될 때 데이터 로드
+  // 연간 모드로 전환되거나 기준 연도가 바뀔 때 1년치 데이터 조회
   useEffect(() => {
     if (viewMode === 'YEARLY') {
       fetchYearlyData(selectedYear);
@@ -189,37 +208,58 @@ export default function AnalyticsDashboard({
       .sort((a, b) => b.value - a.value);
   }, [monthlyExpenseTransactions, monthlyTotalExpense]);
 
-  // (2) [신규 요청] 월간 지출 소분류 상위 랭킹 막대 그래프 데이터
+  // (1-B) [신규 요청] 대분류별 예산 vs 실제 지출 비교 막대 그래프 데이터
+  const budgetVsExpenseData = useMemo(() => {
+    const majors = new Set<string>();
+    Object.keys(monthlyBudgets).forEach((m) => majors.add(m));
+    categoryMajorData.forEach((item) => majors.add(item.name));
+
+    return Array.from(majors)
+      .map((major) => {
+        const budget = monthlyBudgets[major] || 0;
+        const expenseItem = categoryMajorData.find((item) => item.name === major);
+        const expense = expenseItem ? expenseItem.value : 0;
+        return {
+          major,
+          budget,
+          expense,
+          diff: budget - expense,
+        };
+      })
+      .sort((a, b) => b.budget - a.budget || b.expense - a.expense);
+  }, [monthlyBudgets, categoryMajorData]);
+
+  // (2) [신규 요청 반영] 지출분석: 소분류 상위 10개 랭킹 (0점 좌측 정렬 & 10개 제한)
   const subCategoryRankingData = useMemo(() => {
-    const map: { [sub: string]: { major: string; amount: number } } = {};
+    const map: { [sub: string]: { major: string; subName: string; amount: number } } = {};
     monthlyExpenseTransactions.forEach((tx) => {
       const subName = tx.category ? tx.category.sub_name : '기타';
       const majorName = tx.category ? tx.category.major_name : '기타';
       const key = `${majorName} > ${subName}`;
 
       if (!map[key]) {
-        map[key] = { major: majorName, amount: 0 };
+        map[key] = { major: majorName, subName, amount: 0 };
       }
       map[key].amount += Number(tx.amount);
     });
 
     return Object.entries(map)
       .map(([name, data]) => ({
-        name,
+        fullName: name,
+        shortName: data.subName, // 차트 Y축에는 짧은 소분류명 표시하여 0축을 좌측으로 바짝 이동
         amount: data.amount,
         percentage: monthlyTotalExpense > 0 ? ((data.amount / monthlyTotalExpense) * 100).toFixed(1) : '0',
       }))
       .sort((a, b) => b.amount - a.amount)
-      .slice(0, 8); // 상위 8개 소분류
+      .slice(0, 10); // [요청 반영] 상위 10개로 제한
   }, [monthlyExpenseTransactions, monthlyTotalExpense]);
 
-  // (3) [신규 요청] 카드별 지출 금액 통계 데이터 (카드로 결제된 내역만 필터링)
+  // (3) 카드별 지출 금액 통계 데이터 (카드로 결제된 내역만 필터링)
   const cardExpenseData = useMemo(() => {
     const map: { [cardName: string]: number } = {};
     let totalCardSpent = 0;
 
     monthlyExpenseTransactions.forEach((tx) => {
-      // payment_method가 존재하고 type이 'CARD'인 경우
       const pm = tx.payment_method || paymentMethods.find((p) => p.id === tx.payment_method_id);
       if (pm && pm.type === 'CARD') {
         map[pm.name] = (map[pm.name] || 0) + Number(tx.amount);
@@ -243,7 +283,6 @@ export default function AnalyticsDashboard({
   // 2. 연간 종합 분석 데이터 계산 (1월~12월 수입/지출)
   // =========================================================================
   const yearlyMonthlyComparisonData = useMemo(() => {
-    // 1월부터 12월까지 초기화
     const months = Array.from({ length: 12 }, (_, i) => ({
       month: `${i + 1}월`,
       income: 0,
@@ -253,12 +292,14 @@ export default function AnalyticsDashboard({
     yearlyTransactions.forEach((tx) => {
       if (tx.exclude_from_stats) return;
 
-      const m = parseInt(tx.transaction_date.slice(5, 7), 10); // 1~12
-      if (m >= 1 && m <= 12) {
+      const date = new Date(tx.transaction_date);
+      const mIdx = date.getMonth(); // 0~11
+
+      if (mIdx >= 0 && mIdx < 12) {
         if (tx.type === 'INCOME') {
-          months[m - 1].income += Number(tx.amount);
+          months[mIdx].income += Number(tx.amount);
         } else if (tx.type === 'EXPENSE') {
-          months[m - 1].expense += Number(tx.amount);
+          months[mIdx].expense += Number(tx.amount);
         }
       }
     });
@@ -266,51 +307,48 @@ export default function AnalyticsDashboard({
     return months;
   }, [yearlyTransactions]);
 
+  // 연간 누적 총수입, 총지출, 순저축액
   const yearlyTotalIncome = useMemo(() => {
-    return yearlyTransactions
-      .filter((tx) => tx.type === 'INCOME' && !tx.exclude_from_stats)
-      .reduce((sum, tx) => sum + Number(tx.amount), 0);
-  }, [yearlyTransactions]);
+    return yearlyMonthlyComparisonData.reduce((sum, m) => sum + m.income, 0);
+  }, [yearlyMonthlyComparisonData]);
 
   const yearlyTotalExpense = useMemo(() => {
-    return yearlyTransactions
-      .filter((tx) => tx.type === 'EXPENSE' && !tx.exclude_from_stats)
-      .reduce((sum, tx) => sum + Number(tx.amount), 0);
-  }, [yearlyTransactions]);
+    return yearlyMonthlyComparisonData.reduce((sum, m) => sum + m.expense, 0);
+  }, [yearlyMonthlyComparisonData]);
 
   const yearlyNetSavings = yearlyTotalIncome - yearlyTotalExpense;
 
   return (
     <div className="space-y-6">
-      {/* 1. 상단 탭: 월간 통계 vs 연간 종합 분석 전환 */}
+      {/* 1. 상단 뷰 전환 탭: '월간 분석' vs '연간 종합 분석' 및 날짜 이동기 */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-4 rounded-2xl border border-slate-200 shadow-xs">
-        <div className="flex items-center gap-2 bg-slate-100 p-1 rounded-xl self-start sm:self-auto">
+        {/* 모드 전환 탭 */}
+        <div className="flex items-center gap-2 bg-slate-100 p-1 rounded-xl">
           <button
             onClick={() => setViewMode('MONTHLY')}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs sm:text-sm font-bold transition cursor-pointer ${
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg font-bold text-xs sm:text-sm transition-colors ${
               viewMode === 'MONTHLY'
                 ? 'bg-white text-blue-600 shadow-xs'
                 : 'text-slate-600 hover:text-slate-900'
             }`}
           >
-            <Calendar className="w-4 h-4" />
-            <span>월간 분석</span>
+            <PieIcon className="w-4 h-4" />
+            월간 분석
           </button>
-
           <button
             onClick={() => setViewMode('YEARLY')}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs sm:text-sm font-bold transition cursor-pointer ${
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg font-bold text-xs sm:text-sm transition-colors ${
               viewMode === 'YEARLY'
                 ? 'bg-white text-indigo-600 shadow-xs'
                 : 'text-slate-600 hover:text-slate-900'
             }`}
           >
             <BarChart3 className="w-4 h-4" />
-            <span>연간 종합 분석</span>
+            연간 종합 분석
           </button>
         </div>
 
-        {/* 월간/연간 날짜 이동 컨트롤러 */}
+        {/* 날짜 선택 및 이전/다음 이동기 */}
         {viewMode === 'MONTHLY' ? (
           <div className="flex items-center gap-2">
             <button
@@ -404,99 +442,187 @@ export default function AnalyticsDashboard({
             </div>
           ) : (
             <div className="space-y-6">
-              {/* 상단 2열 그리드: 대분류 도넛 차트 vs [신규] 소분류 랭킹 막대 그래프 */}
+              {/* 상단 2열 그리드: [지출 현황] vs [지출분석] */}
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                {/* 1) 대분류별 지출 비중 (도넛 차트) */}
+                {/* 1) [제목 변경 & 탭 추가] 지출 현황 (파이형 vs 예산 비교 그래프형) */}
                 <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-xs flex flex-col justify-between">
                   <div>
-                    <h3 className="font-bold text-slate-800 flex items-center gap-2 text-base mb-4">
-                      <PieIcon className="w-5 h-5 text-blue-600" />
-                      지출 대분류별 비중
-                    </h3>
+                    <div className="flex items-center justify-between mb-4">
+                      <h3 className="font-bold text-slate-800 flex items-center gap-2 text-base">
+                        <PieIcon className="w-5 h-5 text-blue-600" />
+                        지출 현황
+                      </h3>
 
-                    <div className="h-64">
-                      <ResponsiveContainer width="100%" height="100%">
-                        <PieChart>
-                          <Pie
-                            data={categoryMajorData}
-                            cx="50%"
-                            cy="50%"
-                            innerRadius={65}
-                            outerRadius={95}
-                            paddingAngle={3}
-                            dataKey="value"
-                          >
-                            {categoryMajorData.map((_, index) => (
-                              <Cell
-                                key={`cell-${index}`}
-                                fill={COLORS[index % COLORS.length]}
-                              />
-                            ))}
-                          </Pie>
-                          <Tooltip
-                            formatter={(val: unknown) => `${Number(val).toLocaleString()}원`}
-                          />
-                        </PieChart>
-                      </ResponsiveContainer>
-                    </div>
-                  </div>
-
-                  <div className="mt-4 space-y-1.5 max-h-48 overflow-y-auto pr-1">
-                    {categoryMajorData.map((item, idx) => (
-                      <div
-                        key={item.name}
-                        className="flex items-center justify-between text-xs py-1 border-b border-slate-50 last:border-none"
-                      >
-                        <div className="flex items-center gap-2">
-                          <span
-                            className="w-2.5 h-2.5 rounded-full shrink-0"
-                            style={{ backgroundColor: COLORS[idx % COLORS.length] }}
-                          />
-                          <span className="font-medium text-slate-700">{item.name}</span>
-                        </div>
-                        <div className="flex items-center gap-3">
-                          <span className="text-slate-400 font-mono">{item.percentage}%</span>
-                          <span className="font-bold text-slate-800">
-                            {item.value.toLocaleString()}원
-                          </span>
-                        </div>
+                      {/* [신규 요청] 파이형 / 그래프형 선택 탭 토글 */}
+                      <div className="flex items-center bg-slate-100 p-0.5 rounded-lg border border-slate-200">
+                        <button
+                          onClick={() => setExpenseViewType('PIE')}
+                          className={`px-2.5 py-1 text-xs font-bold rounded-md transition-colors flex items-center gap-1 ${
+                            expenseViewType === 'PIE'
+                              ? 'bg-white text-blue-600 shadow-xs'
+                              : 'text-slate-500 hover:text-slate-800'
+                          }`}
+                        >
+                          <PieIcon className="w-3.5 h-3.5" />
+                          <span>파이형</span>
+                        </button>
+                        <button
+                          onClick={() => setExpenseViewType('BAR')}
+                          className={`px-2.5 py-1 text-xs font-bold rounded-md transition-colors flex items-center gap-1 ${
+                            expenseViewType === 'BAR'
+                              ? 'bg-white text-blue-600 shadow-xs'
+                              : 'text-slate-500 hover:text-slate-800'
+                          }`}
+                        >
+                          <BarChart3 className="w-3.5 h-3.5" />
+                          <span>그래프형</span>
+                        </button>
                       </div>
-                    ))}
+                    </div>
+
+                    {/* [옵션 A] 파이형 도넛 차트 */}
+                    {expenseViewType === 'PIE' && (
+                      <>
+                        <div className="h-64">
+                          <ResponsiveContainer width="100%" height="100%">
+                            <PieChart>
+                              <Pie
+                                data={categoryMajorData}
+                                cx="50%"
+                                cy="50%"
+                                innerRadius={65}
+                                outerRadius={95}
+                                paddingAngle={3}
+                                dataKey="value"
+                              >
+                                {categoryMajorData.map((_, index) => (
+                                  <Cell
+                                    key={`cell-${index}`}
+                                    fill={COLORS[index % COLORS.length]}
+                                  />
+                                ))}
+                              </Pie>
+                              <Tooltip
+                                formatter={(val: unknown) => `${Number(val).toLocaleString()}원`}
+                              />
+                            </PieChart>
+                          </ResponsiveContainer>
+                        </div>
+
+                        {/* 대분류 상세 비중 목록 */}
+                        <div className="mt-4 space-y-1.5 max-h-48 overflow-y-auto pr-1">
+                          {categoryMajorData.map((item, idx) => (
+                            <div
+                              key={item.name}
+                              className="flex items-center justify-between text-xs py-1 border-b border-slate-50 last:border-none"
+                            >
+                              <div className="flex items-center gap-2">
+                                <span
+                                  className="w-2.5 h-2.5 rounded-full shrink-0"
+                                  style={{ backgroundColor: COLORS[idx % COLORS.length] }}
+                                />
+                                <span className="font-medium text-slate-700">{item.name}</span>
+                              </div>
+                              <div className="flex items-center gap-3">
+                                <span className="text-slate-400 font-mono">{item.percentage}%</span>
+                                <span className="font-bold text-slate-800">
+                                  {item.value.toLocaleString()}원
+                                </span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </>
+                    )}
+
+                    {/* [옵션 B: 신규 요청] 예산과 실제 지출을 비교해 보여주는 그래프 */}
+                    {expenseViewType === 'BAR' && (
+                      <>
+                        <div className="h-64">
+                          <ResponsiveContainer width="100%" height="100%">
+                            <BarChart
+                              data={budgetVsExpenseData}
+                              margin={{ top: 10, right: 10, left: -20, bottom: 0 }}
+                            >
+                              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#F1F5F9" />
+                              <XAxis dataKey="major" tick={{ fontSize: 10, fill: '#334155' }} />
+                              <YAxis
+                                tick={{ fontSize: 10, fill: '#64748B' }}
+                                tickFormatter={(val) => `${(val / 10000).toFixed(0)}만`}
+                              />
+                              <Tooltip
+                                formatter={(val: unknown) => `${Number(val).toLocaleString()}원`}
+                              />
+                              <Legend
+                                verticalAlign="top"
+                                align="right"
+                                wrapperStyle={{ paddingBottom: '6px', fontSize: '11px' }}
+                              />
+                              <Bar dataKey="budget" name="예산" fill="#3B82F6" radius={[4, 4, 0, 0]} />
+                              <Bar dataKey="expense" name="실제 지출" fill="#EF4444" radius={[4, 4, 0, 0]} />
+                            </BarChart>
+                          </ResponsiveContainer>
+                        </div>
+
+                        {/* 대분류별 예산 vs 지출 상세 비교 표 */}
+                        <div className="mt-4 space-y-1.5 max-h-48 overflow-y-auto pr-1">
+                          {budgetVsExpenseData.map((item) => (
+                            <div
+                              key={item.major}
+                              className="flex items-center justify-between text-xs py-1.5 border-b border-slate-50 last:border-none"
+                            >
+                              <span className="font-semibold text-slate-700">{item.major}</span>
+                              <div className="flex items-center gap-2 font-mono">
+                                <span className="text-blue-600">예산 {item.budget.toLocaleString()}원</span>
+                                <span className="text-slate-300">/</span>
+                                <span className="text-red-500">지출 {item.expense.toLocaleString()}원</span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </>
+                    )}
                   </div>
                 </div>
 
-                {/* 2) [신규 요청] 지출 소분류 상위 랭킹 막대 그래프 */}
+                {/* 2) [제목 변경: 지출분석 & 0점 좌측 정렬 & 10개 제한] */}
                 <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-xs flex flex-col justify-between">
                   <div>
                     <div className="flex items-center justify-between mb-4">
                       <h3 className="font-bold text-slate-800 flex items-center gap-2 text-base">
                         <Award className="w-5 h-5 text-amber-500" />
-                        지출 소분류 TOP 랭킹
+                        지출분석
                       </h3>
-                      <span className="text-xs text-slate-400">상위 항목순</span>
+                      <span className="text-xs text-slate-400">상위 10개 항목</span>
                     </div>
 
+                    {/* 모바일에서 0선이 좌측으로 정돈된 막대 그래프 */}
                     <div className="h-64">
                       <ResponsiveContainer width="100%" height="100%">
                         <BarChart
                           data={subCategoryRankingData}
                           layout="vertical"
-                          margin={{ top: 5, right: 30, left: 40, bottom: 5 }}
+                          margin={{ top: 5, right: 15, left: -10, bottom: 5 }}
                         >
                           <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#F1F5F9" />
                           <XAxis
                             type="number"
-                            tick={{ fontSize: 11, fill: '#64748B' }}
+                            domain={[0, 'auto']}
+                            tick={{ fontSize: 10, fill: '#64748B' }}
                             tickFormatter={(val) => `${(val / 10000).toFixed(0)}만`}
                           />
                           <YAxis
                             type="category"
-                            dataKey="name"
-                            tick={{ fontSize: 11, fill: '#334155' }}
-                            width={110}
+                            dataKey="shortName"
+                            tick={{ fontSize: 10, fill: '#334155' }}
+                            width={65}
+                            tickLine={false}
                           />
                           <Tooltip
-                            formatter={(val: unknown) => `${Number(val).toLocaleString()}원`}
+                            formatter={(val: unknown, _name, item: any) => [
+                              `${Number(val).toLocaleString()}원`,
+                              item.payload.fullName,
+                            ]}
                           />
                           <Bar dataKey="amount" fill="#3B82F6" radius={[0, 6, 6, 0]} />
                         </BarChart>
@@ -504,20 +630,20 @@ export default function AnalyticsDashboard({
                     </div>
                   </div>
 
-                  {/* 소분류 상세 랭킹 리스트 */}
+                  {/* 소분류 상세 랭킹 리스트 (최대 10개) */}
                   <div className="mt-4 space-y-1.5 max-h-48 overflow-y-auto pr-1">
                     {subCategoryRankingData.map((item, idx) => (
                       <div
-                        key={item.name}
+                        key={item.fullName}
                         className="flex items-center justify-between text-xs py-1 border-b border-slate-50 last:border-none"
                       >
                         <div className="flex items-center gap-2">
-                          <span className="w-5 h-5 rounded-full bg-slate-100 text-slate-700 font-bold flex items-center justify-center text-[10px]">
+                          <span className="w-5 h-5 rounded-full bg-slate-100 text-slate-700 font-bold flex items-center justify-center text-[10px] shrink-0">
                             {idx + 1}
                           </span>
-                          <span className="font-semibold text-slate-700">{item.name}</span>
+                          <span className="font-semibold text-slate-700 truncate">{item.fullName}</span>
                         </div>
-                        <div className="flex items-center gap-3">
+                        <div className="flex items-center gap-3 shrink-0">
                           <span className="text-slate-400 font-mono">{item.percentage}%</span>
                           <span className="font-bold text-slate-800">
                             {item.amount.toLocaleString()}원
@@ -529,7 +655,7 @@ export default function AnalyticsDashboard({
                 </div>
               </div>
 
-              {/* 3) [신규 요청] 카드별 지출 금액 통계 화면 */}
+              {/* 3) 카드별 지출 금액 통계 화면 */}
               <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-xs">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-6">
                   <div>
@@ -591,7 +717,7 @@ export default function AnalyticsDashboard({
       )}
 
       {/* ===================================================================== */}
-      {/* 3. [신규 요청] [연간 종합 분석 모드] 화면                             */}
+      {/* 3. [연간 종합 분석 모드] 화면                                          */}
       {/* ===================================================================== */}
       {viewMode === 'YEARLY' && (
         <div className="space-y-6">
@@ -642,7 +768,7 @@ export default function AnalyticsDashboard({
             </div>
           </div>
 
-          {/* [핵심 요청] 1월~12월 월별 수입 vs 지출 비교 막대 그래프 */}
+          {/* 1월~12월 월별 수입 vs 지출 비교 막대 그래프 */}
           <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-xs">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-6">
               <div>
