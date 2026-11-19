@@ -22,6 +22,7 @@ export default function Home() {
 
   // 사용자 정보 및 활성 탭 (transactions | accounts | dashboard | budget | import)
   const [userEmail, setUserEmail] = useState<string | null>(null);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'transactions' | 'dashboard' | 'accounts' | 'budget' | 'import'>('transactions');
 
   // 현재 조회 기준 월 (YYYY-MM 형식)
@@ -60,6 +61,7 @@ export default function Home() {
         return;
       }
       setUserEmail(user.email ?? null);
+      setCurrentUserId(user.id);
 
       // 1. 카테고리 목록 조회
       const { data: catData, error: catErr } = await supabase
@@ -120,93 +122,45 @@ export default function Home() {
       if (error) {
         console.error('거래내역 로딩 실패:', error);
       } else {
-        const rawTransactions = (data || []) as Transaction[];
-        setTransactions(rawTransactions);
+        setTransactions(data || []);
       }
     } catch (err) {
-      console.error('거래내역 로딩 중 오류:', err);
+      console.error('거래내역 조회 중 예외:', err);
     } finally {
       setLoading(false);
     }
   }, [supabase, currentMonth]);
 
-  // 첫 마운트 시 기초 데이터 로드
+  // 페이지 진입 시 초기 기초 데이터 로딩
   useEffect(() => {
     fetchBaseData();
   }, [fetchBaseData]);
 
-  // 월이 변경될 때마다 거래내역 다시 조회
+  // 기준 월이 설정/변경될 때마다 거래내역 다시 조회
   useEffect(() => {
-    fetchTransactions();
-  }, [fetchTransactions]);
-
-  // 거래내역에 최신 결제수단 및 입금계좌 정보 결합
-  const populatedTransactions = transactions.map((tx) => ({
-    ...tx,
-    payment_method: paymentMethods.find((p) => p.id === tx.payment_method_id) || null,
-    to_payment_method: paymentMethods.find((p) => p.id === tx.to_payment_method_id) || null,
-  }));
-
-  /**
-   * 기본 카테고리 자동 생성
-   */
-  const handleSeedDefaultData = async () => {
-    try {
-      setSeeding(true);
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-
-      if (!user) {
-        alert('로그인이 필요합니다.');
-        return;
-      }
-
-      // 1. 기본 결제수단/계좌 등록
-      await supabase.from('payment_methods').insert([
-        { user_id: user.id, name: '주거래 은행통장', type: 'BANK', balance: 0, sort_order: 1 },
-        { user_id: user.id, name: '체크카드', type: 'CARD', balance: 0, sort_order: 2 },
-        { user_id: user.id, name: '신용카드', type: 'CARD', balance: 0, sort_order: 3 },
-        { user_id: user.id, name: '현금', type: 'CASH', balance: 0, sort_order: 4 },
-      ]);
-
-      // 2. 기본 카테고리 등록
-      const defaultCategories = [
-        { user_id: user.id, type: 'EXPENSE', major_name: '식비', sub_name: '주식', color: '#EF4444', sort_order: 1 },
-        { user_id: user.id, type: 'EXPENSE', major_name: '식비', sub_name: '부식', color: '#EF4444', sort_order: 2 },
-        { user_id: user.id, type: 'EXPENSE', major_name: '식비', sub_name: '외식', color: '#EF4444', sort_order: 3 },
-        { user_id: user.id, type: 'EXPENSE', major_name: '식비', sub_name: '카페/간식', color: '#EF4444', sort_order: 4 },
-        { user_id: user.id, type: 'EXPENSE', major_name: '주거/통신', sub_name: '월세', color: '#F97316', sort_order: 5 },
-        { user_id: user.id, type: 'EXPENSE', major_name: '주거/통신', sub_name: '관리비', color: '#F97316', sort_order: 6 },
-        { user_id: user.id, type: 'EXPENSE', major_name: '주거/통신', sub_name: '통신비', color: '#F97316', sort_order: 7 },
-        { user_id: user.id, type: 'EXPENSE', major_name: '생활용품', sub_name: '생필품', color: '#F59E0B', sort_order: 8 },
-        { user_id: user.id, type: 'EXPENSE', major_name: '교통/차량', sub_name: '대중교통', color: '#3B82F6', sort_order: 9 },
-        { user_id: user.id, type: 'EXPENSE', major_name: '교통/차량', sub_name: '주유비', color: '#3B82F6', sort_order: 10 },
-        { user_id: user.id, type: 'EXPENSE', major_name: '건강/문화', sub_name: '병원/약국', color: '#06B6D4', sort_order: 11 },
-        { user_id: user.id, type: 'EXPENSE', major_name: '건강/문화', sub_name: '문화/여가', color: '#06B6D4', sort_order: 12 },
-        { user_id: user.id, type: 'EXPENSE', major_name: '기타', sub_name: '기타지출', color: '#64748B', sort_order: 13 },
-        { user_id: user.id, type: 'INCOME', major_name: '급여', sub_name: '기본급', color: '#10B981', sort_order: 1 },
-        { user_id: user.id, type: 'INCOME', major_name: '급여', sub_name: '상여금', color: '#10B981', sort_order: 2 },
-        { user_id: user.id, type: 'INCOME', major_name: '금융소득', sub_name: '이자/배당', color: '#3B82F6', sort_order: 3 },
-        { user_id: user.id, type: 'INCOME', major_name: '부수입', sub_name: '기타수입', color: '#F59E0B', sort_order: 4 },
-      ];
-
-      const { error: catErr } = await supabase.from('categories').insert(defaultCategories);
-      if (catErr) {
-        alert(`생성 중 오류: ${catErr.message}`);
-      } else {
-        alert('기본 카테고리와 결제수단이 성공적으로 생성되었습니다!');
-        fetchBaseData();
-      }
-    } catch (err: any) {
-      alert(`오류 발생: ${err?.message || err}`);
-    } finally {
-      setSeeding(false);
+    if (currentMonth) {
+      fetchTransactions();
     }
-  };
+  }, [currentMonth, fetchTransactions]);
 
   /**
-   * 새 내역 추가 모달 열기
+   * 결제수단 정보를 트랜잭션과 결합 (출금 수단 및 입금 대상 계좌)
+   */
+  const populatedTransactions = transactions.map((t) => {
+    const paymentMethod = paymentMethods.find((p) => p.id === t.payment_method_id);
+    const toPaymentMethod = t.to_payment_method_id
+      ? paymentMethods.find((p) => p.id === t.to_payment_method_id)
+      : undefined;
+
+    return {
+      ...t,
+      payment_method: paymentMethod,
+      to_payment_method: toPaymentMethod,
+    };
+  });
+
+  /**
+   * 내역 등록 모달 열기
    */
   const handleOpenAddModal = () => {
     setEditingTransaction(null);
@@ -214,74 +168,145 @@ export default function Home() {
   };
 
   /**
-   * 특정 내역 수정 모달 열기
+   * 내역 수정 모달 열기
    */
-  const handleEditTransaction = (tx: Transaction) => {
-    setEditingTransaction(tx);
+  const handleEditTransaction = (transaction: Transaction) => {
+    setEditingTransaction(transaction);
     setIsModalOpen(true);
   };
 
+  /**
+   * 거래내역 단건 삭제
+   */
+  const handleDeleteTransaction = async (id: string) => {
+    if (!confirm('정말로 이 내역을 삭제하시겠습니까?')) {
+      return;
+    }
+
+    try {
+      const { error } = await supabase.from('transactions').delete().eq('id', id);
+
+      if (error) {
+        alert(`삭제 실패: ${error.message}`);
+      } else {
+        // 성공 시 목록과 자산 잔액 즉시 갱신
+        fetchTransactions();
+        fetchBaseData();
+      }
+    } catch (err: any) {
+      alert(`오류: ${err.message}`);
+    }
+  };
+
+  /**
+   * 카테고리가 비어있을 때 네이버 가계부 기본 카테고리 수동 시딩
+   */
+  const handleSeedDefaults = async () => {
+    setSeeding(true);
+    try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
+      if (!user) throw new Error('로그인 정보가 없습니다.');
+
+      const defaultCategories = [
+        // 지출 대분류 & 소분류
+        { user_id: user.id, name: '부식', major_name: '식비', type: 'EXPENSE', sort_order: 1 },
+        { user_id: user.id, name: '외식', major_name: '식비', type: 'EXPENSE', sort_order: 2 },
+        { user_id: user.id, name: '카페/간식', major_name: '식비', type: 'EXPENSE', sort_order: 3 },
+        { user_id: user.id, name: '관리비', major_name: '주거/통신', type: 'EXPENSE', sort_order: 4 },
+        { user_id: user.id, name: '통신비', major_name: '주거/통신', type: 'EXPENSE', sort_order: 5 },
+        { user_id: user.id, name: '생필품', major_name: '생활용품', type: 'EXPENSE', sort_order: 6 },
+        { user_id: user.id, name: '의류/신발', major_name: '의복/미용', type: 'EXPENSE', sort_order: 7 },
+        { user_id: user.id, name: '병원/약국', major_name: '건강/문화', type: 'EXPENSE', sort_order: 8 },
+        { user_id: user.id, name: '대중교통', major_name: '교통/차량', type: 'EXPENSE', sort_order: 9 },
+        { user_id: user.id, name: '주유비', major_name: '교통/차량', type: 'EXPENSE', sort_order: 10 },
+        { user_id: user.id, name: '경조사비', major_name: '경조사/회비', type: 'EXPENSE', sort_order: 11 },
+        // 수입 대분류 & 소분류
+        { user_id: user.id, name: '급여', major_name: '주수입', type: 'INCOME', sort_order: 12 },
+        { user_id: user.id, name: '상여금', major_name: '주수입', type: 'INCOME', sort_order: 13 },
+        { user_id: user.id, name: '이자수입', major_name: '부수입', type: 'INCOME', sort_order: 14 },
+        { user_id: user.id, name: '기타수입', major_name: '부수입', type: 'INCOME', sort_order: 15 },
+      ];
+
+      const defaultPayments = [
+        { user_id: user.id, name: '현금', type: 'CASH', sort_order: 1 },
+        { user_id: user.id, name: '주거래 은행', type: 'BANK', sort_order: 2 },
+        { user_id: user.id, name: '신용카드', type: 'CARD', sort_order: 3 },
+        { user_id: user.id, name: '체크카드', type: 'CARD', sort_order: 4 },
+      ];
+
+      await supabase.from('categories').insert(defaultCategories);
+      await supabase.from('payment_methods').insert(defaultPayments);
+
+      alert('네이버 가계부 기본 카테고리와 결제수단이 생성되었습니다!');
+      fetchBaseData();
+    } catch (err: any) {
+      alert(`시딩 실패: ${err.message}`);
+    } finally {
+      setSeeding(false);
+    }
+  };
+
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900">
-      {/* 1. 상단 전역 헤더 & 모바일 하단 탭 바 */}
+    <div className="min-h-screen bg-slate-50 flex flex-col font-sans">
+      {/* 1. 상단 공통 헤더 */}
       <Header
-        userEmail={userEmail}
         activeTab={activeTab}
         setActiveTab={setActiveTab}
+        userEmail={userEmail}
       />
 
-      {/* 2. 메인 컨텐츠 영역 */}
-      <main className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-4 sm:py-8 pb-24 sm:pb-8">
-        {/* DB 오류 배너 */}
+      {/* 2. 메인 컨텐츠 영역 (모바일 하단 탭 바 가림 방지를 위해 pb-24 적용) */}
+      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 pb-24">
+        {/* DB 오류 안내 배너 */}
         {dbErrorMessage && (
-          <div className="mb-4 sm:mb-6 p-4 bg-red-50 border border-red-200 rounded-2xl flex items-start gap-3 text-red-700 text-sm">
-            <AlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5" />
-            <div className="space-y-1">
-              <div className="font-bold">데이터베이스 연동 안내</div>
-              <div>{dbErrorMessage}</div>
+          <div className="mb-6 p-4 bg-amber-50 border border-amber-200 rounded-xl text-amber-800 flex items-start gap-3">
+            <AlertCircle className="w-5 h-5 text-amber-600 mt-0.5 shrink-0" />
+            <div className="flex-1 text-sm">
+              <p className="font-bold">데이터베이스 연동 안내</p>
+              <p className="mt-1">{dbErrorMessage}</p>
+              <p className="mt-2 text-xs text-amber-700">
+                Supabase SQL Editor에서 마이그레이션 스크립트를 실행했는지 확인해 주세요.
+              </p>
             </div>
           </div>
         )}
 
-        {/* 초기 카테고리가 없을 때 자동 생성 배너 */}
-        {!dbErrorMessage && categories.length === 0 && !loading && (
-          <div className="mb-4 sm:mb-6 p-4 sm:p-5 bg-blue-50 border border-blue-200 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center text-white shrink-0 shadow-sm">
-                <Sparkles className="w-5 h-5" />
-              </div>
-              <div>
-                <h4 className="font-bold text-blue-900 text-sm">
-                  기본 카테고리가 아직 등록되지 않았습니다
-                </h4>
-                <p className="text-xs text-blue-700 mt-0.5">
-                  버튼 한 번으로 네이버 가계부 표준 카테고리와 기본 결제수단을 즉시 생성할 수 있습니다.
-                </p>
-              </div>
-            </div>
-
+        {/* 신규 계정용 기본 데이터 생성 안내 배너 */}
+        {!loading && categories.length === 0 && !dbErrorMessage && (
+          <div className="mb-6 p-6 bg-white border border-emerald-200 rounded-2xl shadow-xs text-center space-y-3">
+            <Sparkles className="w-8 h-8 text-emerald-600 mx-auto" />
+            <h3 className="text-base font-bold text-slate-800">
+              네이버 가계부 표준 카테고리 초기화
+            </h3>
+            <p className="text-sm text-slate-600 max-w-md mx-auto">
+              현재 등록된 카테고리가 없습니다. 버튼 한 번으로 네이버 가계부의 필수 카테고리 30여 개를 바로 시작할 수 있습니다.
+            </p>
             <button
-              onClick={handleSeedDefaultData}
+              onClick={handleSeedDefaults}
               disabled={seeding}
-              className="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs rounded-xl shadow-md shadow-blue-200 transition shrink-0 cursor-pointer disabled:opacity-50"
+              className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-400 text-white font-bold text-sm rounded-xl transition-colors shadow-xs"
             >
-              {seeding ? '생성 중...' : '기본 카테고리 자동 생성하기'}
+              {seeding ? '생성 중...' : '네이버 가계부 카테고리 자동 설정'}
             </button>
           </div>
         )}
 
-        {loading && populatedTransactions.length === 0 ? (
+        {/* 탭별 뷰 렌더링 */}
+        {loading && transactions.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-24 text-slate-400">
-            <RefreshCw className="w-8 h-8 animate-spin mb-3 text-blue-600" />
-            <p className="text-sm font-medium">가계부 데이터를 불러오는 중입니다...</p>
+            <RefreshCw className="w-8 h-8 animate-spin text-emerald-600 mb-3" />
+            <p className="text-sm">가계부 데이터를 불러오는 중입니다...</p>
           </div>
         ) : (
           <>
-            {/* [탭 1] 가계부 거래내역 목록 */}
+            {/* [탭 1] 가계부 거래내역 화면 */}
             {activeTab === 'transactions' && (
               <TransactionList
                 transactions={populatedTransactions}
-                currentMonth={currentMonth || new Date().toISOString().slice(0, 7)}
+                currentMonth={currentMonth}
                 setCurrentMonth={setCurrentMonth}
                 onOpenAddModal={handleOpenAddModal}
                 onEditTransaction={handleEditTransaction}
@@ -292,7 +317,7 @@ export default function Home() {
               />
             )}
 
-            {/* [탭 2] 자산 & 은행 계좌 종합 관리 */}
+            {/* [탭 2] 자산 및 통장 계좌 관리 화면 */}
             {activeTab === 'accounts' && (
               <AccountManagement
                 paymentMethods={paymentMethods}
@@ -320,6 +345,7 @@ export default function Home() {
                 currentMonth={currentMonth || new Date().toISOString().slice(0, 7)}
                 setCurrentMonth={setCurrentMonth}
                 transactions={populatedTransactions}
+                userId={currentUserId}
               />
             )}
 
@@ -339,10 +365,13 @@ export default function Home() {
         )}
       </main>
 
-      {/* 3. 거래내역 등록/수정 모달 */}
+      {/* 3. 거래내역 추가 / 수정 공통 모달 */}
       <TransactionFormModal
         isOpen={isModalOpen}
-        onClose={() => setIsModalOpen(false)}
+        onClose={() => {
+          setIsModalOpen(false);
+          setEditingTransaction(null);
+        }}
         onSuccess={() => {
           fetchTransactions();
           fetchBaseData();

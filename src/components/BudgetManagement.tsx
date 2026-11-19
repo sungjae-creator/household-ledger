@@ -15,6 +15,7 @@ import {
   TrendingUp,
   BarChart2,
   ArrowRight,
+  RefreshCw,
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -33,6 +34,44 @@ interface BudgetManagementProps {
   currentMonth: string; // YYYY-MM
   setCurrentMonth: (month: string) => void;
   transactions: Transaction[]; // 당월 거래내역
+  userId?: string | null; // 부모 컴포넌트(page.tsx)에서 전달받은 사용자 고유 ID
+}
+
+/**
+ * [보안 및 안정성 최적화]
+ * 세션 토큰 만료 시 자동 갱신을 지원하는 안전한 사용자 정보 조회 헬퍼 함수
+ */
+async function getSafeUser(supabase: ReturnType<typeof createClient>) {
+  try {
+    // 1. 브라우저 로컬 세션 확인 (유효기간 체크 및 자동 갱신)
+    const { data: sessionData, error: sessionErr } = await supabase.auth.getSession();
+    if (sessionData?.session?.user) {
+      return { user: sessionData.session.user, error: null };
+    }
+
+    // 2. 만료된 경우 세션 토큰 강제 갱신(Refresh) 시도
+    const { data: refreshData, error: refreshErr } = await supabase.auth.refreshSession();
+    if (refreshData?.user) {
+      return { user: refreshData.user, error: null };
+    }
+
+    // 3. 서버 API 직접 확인
+    const { data: userData, error: userErr } = await supabase.auth.getUser();
+    if (userData?.user) {
+      return { user: userData.user, error: null };
+    }
+
+    return {
+      user: null,
+      error:
+        userErr ||
+        refreshErr ||
+        sessionErr ||
+        new Error('로그인 세션이 만료되었습니다. 페이지를 새로고침하거나 다시 로그인해 주세요.'),
+    };
+  } catch (e: any) {
+    return { user: null, error: e };
+  }
 }
 
 /**
@@ -43,6 +82,7 @@ export default function BudgetManagement({
   currentMonth,
   setCurrentMonth,
   transactions,
+  userId: propUserId,
 }: BudgetManagementProps) {
   const supabase = createClient();
 
@@ -146,32 +186,44 @@ export default function BudgetManagement({
     setSaveError(null);
 
     try {
-      const {
-        data: { user },
-        error: userErr,
-      } = await supabase.auth.getUser();
+      // 1. 사용자 ID 획득: props 또는 세션 자동 갱신 헬퍼 사용
+      let effectiveUserId = propUserId;
 
-      if (userErr || !user) throw new Error('로그인이 필요합니다.');
+      if (!effectiveUserId) {
+        const { user, error: userErr } = await getSafeUser(supabase);
+        if (userErr || !user) {
+          throw new Error('로그인 세션이 만료되었습니다. 브라우저를 새로고침하거나 다시 로그인해 주세요.');
+        }
+        effectiveUserId = user.id;
+      }
 
-      // 대분류별 예산 upsert 데이터 생성
+      // 2. 대분류별 예산 upsert 데이터 생성
       const upsertData = expenseMajors.map((major) => ({
-        user_id: user.id,
+        user_id: effectiveUserId,
         year_month: currentMonth,
         category_major: major,
         amount: budgetMap[major] || 0,
         updated_at: new Date().toISOString(),
       }));
 
+      // 3. Supabase budgets 테이블에 일괄 등록/수정 (upsert)
       const { error } = await supabase
         .from('budgets')
         .upsert(upsertData, { onConflict: 'user_id, year_month, category_major' });
 
-      if (error) throw error;
+      if (error) {
+        // 테이블이 아직 생성되지 않은 경우 친절한 안내 제공
+        if (error.code === '42P01' || error.message?.includes('relation "budgets" does not exist')) {
+          throw new Error('Supabase에 budgets 테이블이 생성되지 않았습니다. 007_create_budgets_table.sql 마이그레이션 쿼리를 SQL Editor에서 먼저 실행해 주세요.');
+        }
+        throw error;
+      }
 
       setSaveSuccess(`${currentMonth} 예산이 안전하게 저장되었습니다!`);
       setTimeout(() => setSaveSuccess(null), 3000);
     } catch (err: any) {
-      setSaveError(`예산 저장 실패: ${err?.message || err}`);
+      console.error('예산 저장 실패 원인:', err);
+      setSaveError(`예산 저장 실패: ${err?.message || String(err)}`);
     } finally {
       setSaving(false);
     }
@@ -216,7 +268,7 @@ export default function BudgetManagement({
         ...map,
       }));
 
-      alert(`${prevMonthStr} 예산을 불러왔습니다. 확인 후 [예산 저장]을 눌러주세요.`);
+      alert(`${prevMonthStr} 예산을 성공적으로 불러왔습니다. 확인 후 [예산 저장]을 눌러주세요.`);
     } catch (err: any) {
       alert(`복사 실패: ${err?.message || err}`);
     }
@@ -319,27 +371,30 @@ export default function BudgetManagement({
 
   // 예산반성: 대분류별 1월~12월 남은 돈 매트릭스 계산
   const matrixData = useMemo(() => {
-    // 1. 전체 합계 행
-    const totalRow: { [m: number]: number } = {};
+    // 월별 총합 행
+    const totalRow: { [month: number]: number } = {};
     for (let m = 1; m <= 12; m++) {
       const mStr = `${reviewYear}-${String(m).padStart(2, '0')}`;
-      const bg = yearlyBudgets.filter((b) => b.year_month === mStr).reduce((s, b) => s + Number(b.amount), 0);
-      const ex = yearlyTransactions
+      const mBudget = yearlyBudgets
+        .filter((b) => b.year_month === mStr)
+        .reduce((s, b) => s + Number(b.amount), 0);
+      const mExpense = yearlyTransactions
         .filter((t) => t.type === 'EXPENSE' && !t.exclude_from_stats && t.transaction_date.startsWith(mStr))
         .reduce((s, t) => s + Number(t.amount), 0);
-      totalRow[m] = bg - ex;
+      totalRow[m] = mBudget - mExpense;
     }
 
-    // 2. 대분류별 행
+    // 각 대분류별 1~12월 값
     const rows = expenseMajors.map((major) => {
-      const monthValues: { [m: number]: number } = {};
+      const values: { [month: number]: number } = {};
       for (let m = 1; m <= 12; m++) {
         const mStr = `${reviewYear}-${String(m).padStart(2, '0')}`;
-        const bg = yearlyBudgets
-          .filter((b) => b.year_month === mStr && b.category_major === major)
-          .reduce((s, b) => s + Number(b.amount), 0);
+        // 해당 대분류 해당 월 예산
+        const bg = yearlyBudgets.find((b) => b.year_month === mStr && b.category_major === major);
+        const bAmount = bg ? Number(bg.amount) : 0;
 
-        const ex = yearlyTransactions
+        // 해당 대분류 해당 월 지출
+        const eAmount = yearlyTransactions
           .filter(
             (t) =>
               t.type === 'EXPENSE' &&
@@ -349,118 +404,113 @@ export default function BudgetManagement({
           )
           .reduce((s, t) => s + Number(t.amount), 0);
 
-        monthValues[m] = bg - ex;
+        values[m] = bAmount - eAmount;
       }
       return {
         major,
-        values: monthValues,
+        values,
       };
     });
 
     return { totalRow, rows };
-  }, [reviewYear, expenseMajors, yearlyBudgets, yearlyTransactions]);
+  }, [expenseMajors, reviewYear, yearlyBudgets, yearlyTransactions]);
 
   return (
     <div className="space-y-6">
-      {/* 1. 상단 모드 탭 (예산쓰기 vs 예산반성) */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-4 rounded-2xl border border-slate-200 shadow-xs">
-        <div className="flex items-center gap-2 bg-slate-100 p-1 rounded-xl self-start sm:self-auto">
+      {/* 1. 상단 서브 탭 (네이버 가계부 완벽 일치: 예산쓰기 vs 예산반성) */}
+      <div className="flex items-center justify-between border-b border-slate-200 pb-3">
+        <div className="flex gap-2">
           <button
             onClick={() => setTab('BUDGET_WRITE')}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs sm:text-sm font-bold transition cursor-pointer ${
+            className={`px-4 py-2 font-bold text-sm rounded-lg transition-colors flex items-center gap-2 ${
               tab === 'BUDGET_WRITE'
-                ? 'bg-white text-emerald-600 shadow-xs'
-                : 'text-slate-600 hover:text-slate-900'
+                ? 'bg-emerald-600 text-white shadow-xs'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
             }`}
           >
             <Calculator className="w-4 h-4" />
-            <span>예산쓰기</span>
+            예산쓰기
           </button>
-
           <button
             onClick={() => setTab('BUDGET_REVIEW')}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs sm:text-sm font-bold transition cursor-pointer ${
+            className={`px-4 py-2 font-bold text-sm rounded-lg transition-colors flex items-center gap-2 ${
               tab === 'BUDGET_REVIEW'
-                ? 'bg-white text-red-600 shadow-xs'
-                : 'text-slate-600 hover:text-slate-900'
+                ? 'bg-emerald-600 text-white shadow-xs'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
             }`}
           >
             <BarChart2 className="w-4 h-4" />
-            <span>예산반성</span>
+            예산반성
           </button>
         </div>
 
-        {/* 기간 선택 컨트롤러 */}
+        {/* 월/연도 이동 컨트롤러 */}
         {tab === 'BUDGET_WRITE' ? (
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 bg-white px-3 py-1.5 rounded-lg border border-slate-200 shadow-xs">
             <button
               onClick={handlePrevMonth}
-              className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-600 transition"
+              className="p-1 hover:bg-slate-100 rounded text-slate-600"
               title="이전 달"
             >
-              <ChevronLeft className="w-5 h-5" />
+              <ChevronLeft className="w-4 h-4" />
             </button>
-            <span className="font-bold text-slate-800 text-base sm:text-lg min-w-[130px] text-center">
-              {currentMonth.split('-')[0]}년 {currentMonth.split('-')[1]}월
-            </span>
+            <span className="font-bold text-slate-800 text-sm">{currentMonth}</span>
             <button
               onClick={handleNextMonth}
-              className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-600 transition"
+              className="p-1 hover:bg-slate-100 rounded text-slate-600"
               title="다음 달"
             >
-              <ChevronRight className="w-5 h-5" />
+              <ChevronRight className="w-4 h-4" />
             </button>
           </div>
         ) : (
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 bg-white px-3 py-1.5 rounded-lg border border-slate-200 shadow-xs">
             <button
               onClick={() => setReviewYear((y) => y - 1)}
-              className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-600 transition"
-              title="이전 해"
+              className="p-1 hover:bg-slate-100 rounded text-slate-600"
+              title="이전 연도"
             >
-              <ChevronLeft className="w-5 h-5" />
+              <ChevronLeft className="w-4 h-4" />
             </button>
-            <span className="font-bold text-red-900 text-base sm:text-lg min-w-[120px] text-center">
-              {reviewYear}년 예산반성
-            </span>
+            <span className="font-bold text-slate-800 text-sm">{reviewYear}년</span>
             <button
               onClick={() => setReviewYear((y) => y + 1)}
-              className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-600 transition"
-              title="다음 해"
+              className="p-1 hover:bg-slate-100 rounded text-slate-600"
+              title="다음 연도"
             >
-              <ChevronRight className="w-5 h-5" />
+              <ChevronRight className="w-4 h-4" />
             </button>
           </div>
         )}
       </div>
 
-      {/* ===================================================================== */}
-      {/* 2. [예산쓰기] 화면 (네이버 가계부 스크린샷 1과 동일 구조)               */}
-      {/* ===================================================================== */}
+      {/* 피드백 메시지 알림 바 */}
+      {saveSuccess && (
+        <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 px-4 py-3 rounded-xl flex items-center gap-2 text-sm">
+          <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+          <span>{saveSuccess}</span>
+        </div>
+      )}
+
+      {saveError && (
+        <div className="bg-rose-50 border border-rose-200 text-rose-800 px-4 py-3 rounded-xl flex items-center gap-2 text-sm">
+          <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+          <span>{saveError}</span>
+        </div>
+      )}
+
+      {/* =================================================================== */}
+      {/* 2. [예산쓰기] 메인 뷰                                              */}
+      {/* =================================================================== */}
       {tab === 'BUDGET_WRITE' && (
         <div className="space-y-6">
-          {/* 상단 알림 메시지 */}
-          {saveSuccess && (
-            <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-700 rounded-xl text-xs flex items-center gap-2">
-              <CheckCircle2 className="w-4 h-4 shrink-0" />
-              <span>{saveSuccess}</span>
-            </div>
-          )}
-
-          {saveError && (
-            <div className="p-3 bg-red-50 border border-red-200 text-red-700 rounded-xl text-xs flex items-center gap-2">
-              <AlertCircle className="w-4 h-4 shrink-0" />
-              <span>{saveError}</span>
-            </div>
-          )}
-
-          {/* 상단 요약 카드 & 액션 버튼 */}
-          <div className="bg-white rounded-2xl p-5 border border-slate-200 shadow-xs space-y-4">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-slate-100">
+          {/* 상단 컨트롤 및 가이드 문구 */}
+          <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div>
-                <h3 className="font-bold text-slate-800 text-base flex items-center gap-2">
-                  <span>지출예산 작성</span>
-                  <span className="text-xs text-slate-400 font-normal">
+                <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
+                  지출예산 작성
+                  <span className="text-xs font-normal text-slate-500">
                     (수입 합계: +{monthlyTotalIncome.toLocaleString()}원)
                   </span>
                 </h3>
@@ -469,169 +519,185 @@ export default function BudgetManagement({
                 </p>
               </div>
 
-              <div className="flex items-center gap-2 self-start sm:self-auto">
+              <div className="flex items-center gap-2">
                 <button
                   onClick={handleCopyPrevMonthBudget}
-                  className="flex items-center gap-1.5 px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-xl transition cursor-pointer"
+                  className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs rounded-lg transition-colors flex items-center gap-1.5 shadow-xs"
                 >
                   <Copy className="w-3.5 h-3.5" />
-                  <span>이전 달 예산 복사</span>
+                  이전 달 예산 복사
                 </button>
-
                 <button
                   onClick={handleSaveBudgets}
                   disabled={saving}
-                  className="flex items-center gap-1.5 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-md shadow-emerald-200 transition cursor-pointer disabled:opacity-50"
+                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-400 text-white font-bold text-xs rounded-lg transition-colors flex items-center gap-1.5 shadow-xs"
                 >
                   <Save className="w-3.5 h-3.5" />
-                  <span>{saving ? '저장 중...' : '예산 저장'}</span>
+                  {saving ? '저장 중...' : '예산 저장'}
                 </button>
               </div>
             </div>
 
-            {/* 3단 수치 배너 */}
-            <div className="grid grid-cols-3 gap-3">
-              <div className="p-3 bg-slate-50 rounded-xl text-center">
-                <span className="text-[11px] text-slate-500 font-semibold block mb-0.5">총 예산</span>
-                <span className="text-sm sm:text-lg font-extrabold text-slate-800">
+            {/* 상단 요약 카드 (총 예산 / 실제 지출 / 남은 돈) */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2">
+              <div className="bg-slate-50 border border-slate-200/80 p-3.5 rounded-xl text-center">
+                <span className="text-xs text-slate-500 font-medium">총 예산</span>
+                <p className="text-lg font-bold text-slate-900 mt-1">
                   {totalBudgetAmount.toLocaleString()}원
-                </span>
+                </p>
               </div>
 
-              <div className="p-3 bg-slate-50 rounded-xl text-center">
-                <span className="text-[11px] text-slate-500 font-semibold block mb-0.5">실제 지출</span>
-                <span className="text-sm sm:text-lg font-extrabold text-red-600">
+              <div className="bg-slate-50 border border-slate-200/80 p-3.5 rounded-xl text-center">
+                <span className="text-xs text-slate-500 font-medium">실제 지출</span>
+                <p className="text-lg font-bold text-red-600 mt-1">
                   {totalExpenseAmount.toLocaleString()}원
-                </span>
+                </p>
               </div>
 
-              <div className={`p-3 rounded-xl text-center ${totalRemainingAmount >= 0 ? 'bg-emerald-50' : 'bg-red-50'}`}>
-                <span className="text-[11px] font-semibold block mb-0.5 text-slate-600">남은 돈</span>
-                <span
-                  className={`text-sm sm:text-lg font-extrabold ${
-                    totalRemainingAmount >= 0 ? 'text-emerald-700' : 'text-red-700'
-                  }`}
-                >
-                  {totalRemainingAmount.toLocaleString()}원
+              <div
+                className={`p-3.5 rounded-xl text-center border ${
+                  totalRemainingAmount < 0
+                    ? 'bg-rose-50 border-rose-200 text-rose-700'
+                    : 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                }`}
+              >
+                <span className="text-xs font-medium">
+                  {totalRemainingAmount < 0 ? '예산 초과' : '남은 돈'}
                 </span>
+                <p className="text-lg font-bold mt-1">
+                  {totalRemainingAmount.toLocaleString()}원
+                </p>
               </div>
             </div>
           </div>
 
-          {/* 예산쓰기 테이블 (네이버 가계부 스타일) */}
+          {/* 대분류별 예산 입력 테이블 */}
           <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
             <div className="overflow-x-auto">
-              <table className="w-full text-xs text-left">
-                <thead className="bg-slate-50 text-slate-600 font-bold border-b border-slate-200">
-                  <tr>
-                    <th className="px-5 py-3">분류 (대분류)</th>
-                    <th className="px-5 py-3 text-right w-44">예산 (원)</th>
-                    <th className="px-5 py-3 text-right w-40">실제 지출</th>
-                    <th className="px-5 py-3 text-right w-44">남은 돈 (예산 - 지출)</th>
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="bg-slate-50 border-b border-slate-200 text-xs font-semibold text-slate-500">
+                    <th className="py-3 px-4">분류 (대분류)</th>
+                    <th className="py-3 px-4 text-right">예산 (원)</th>
+                    <th className="py-3 px-4 text-right">실제 지출</th>
+                    <th className="py-3 px-4 text-right">남은 돈 (예산 - 지출)</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100">
+                <tbody className="divide-y divide-slate-100 text-sm">
                   {expenseMajors.map((major) => {
                     const budget = budgetMap[major] || 0;
-                    const spent = monthlyExpenseMap[major] || 0;
-                    const remaining = budget - spent;
-                    const isOver = remaining < 0;
+                    const expense = monthlyExpenseMap[major] || 0;
+                    const remaining = budget - expense;
 
                     return (
-                      <tr key={major} className="hover:bg-slate-50/60 transition">
-                        <td className="px-5 py-3 font-bold text-slate-700">{major}</td>
-                        <td className="px-5 py-2 text-right">
+                      <tr key={major} className="hover:bg-slate-50/60 transition-colors">
+                        <td className="py-3 px-4 font-semibold text-slate-800">
+                          {major}
+                        </td>
+                        <td className="py-3 px-4 text-right">
                           <input
                             type="number"
-                            min="0"
-                            step="1000"
                             value={budgetMap[major] !== undefined ? budgetMap[major] : ''}
                             onChange={(e) => handleAmountChange(major, e.target.value)}
                             placeholder="0"
-                            className="w-32 px-2.5 py-1 text-right bg-slate-50 hover:bg-white focus:bg-white border border-slate-200 rounded-lg text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                            className="w-32 px-2.5 py-1 text-right text-sm font-semibold rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-slate-50/50 focus:bg-white transition-all"
                           />
                         </td>
-                        <td className="px-5 py-3 text-right font-medium text-slate-700">
-                          {spent > 0 ? `${spent.toLocaleString()}원` : '0원'}
+                        <td className="py-3 px-4 text-right font-medium text-slate-700">
+                          {expense.toLocaleString()}원
                         </td>
-                        <td
-                          className={`px-5 py-3 text-right font-extrabold ${
-                            isOver ? 'text-red-600' : 'text-slate-800'
-                          }`}
-                        >
-                          {remaining.toLocaleString()}원
+                        <td className="py-3 px-4 text-right font-bold">
+                          <span
+                            className={
+                              remaining < 0
+                                ? 'text-rose-600'
+                                : remaining > 0
+                                ? 'text-emerald-700'
+                                : 'text-slate-400'
+                            }
+                          >
+                            {remaining.toLocaleString()}원
+                          </span>
                         </td>
                       </tr>
                     );
                   })}
-
-                  {/* 합계 행 */}
-                  <tr className="bg-slate-50/90 font-bold border-t-2 border-slate-200">
-                    <td className="px-5 py-3.5 text-slate-900">합계</td>
-                    <td className="px-5 py-3.5 text-right text-slate-900">
+                </tbody>
+                <tfoot>
+                  <tr className="bg-slate-50/80 font-bold border-t border-slate-200 text-sm">
+                    <td className="py-3.5 px-4 text-slate-900">합계</td>
+                    <td className="py-3.5 px-4 text-right text-slate-900">
                       {totalBudgetAmount.toLocaleString()}원
                     </td>
-                    <td className="px-5 py-3.5 text-right text-emerald-600">
+                    <td className="py-3.5 px-4 text-right text-emerald-700">
                       {totalExpenseAmount.toLocaleString()}원
                     </td>
                     <td
-                      className={`px-5 py-3.5 text-right font-black ${
-                        totalRemainingAmount >= 0 ? 'text-slate-900' : 'text-red-600'
+                      className={`py-3.5 px-4 text-right ${
+                        totalRemainingAmount < 0 ? 'text-rose-600' : 'text-emerald-700'
                       }`}
                     >
                       {totalRemainingAmount.toLocaleString()}원
                     </td>
                   </tr>
-                </tbody>
+                </tfoot>
               </table>
             </div>
           </div>
         </div>
       )}
 
-      {/* ===================================================================== */}
-      {/* 3. [예산반성] 화면 (네이버 가계부 스크린샷 2와 동일 구조)               */}
-      {/* ===================================================================== */}
+      {/* =================================================================== */}
+      {/* 3. [예산반성] 메인 뷰 (1월~12월 성과 그래프 & 대분류별 매트릭스 표)  */}
+      {/* =================================================================== */}
       {tab === 'BUDGET_REVIEW' && (
         <div className="space-y-6">
-          {/* 상단 1월~12월 성과 막대 그래프 */}
-          <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-xs">
-            <div className="flex items-center justify-between mb-4">
+          {/* 3-1. 1년 성과 막대그래프 (네이버 가계부 스크린샷 완벽 재현) */}
+          <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs space-y-4">
+            <div className="flex items-center justify-between">
               <div>
-                <h3 className="font-bold text-slate-800 text-base">예산 대비 지출 성과 (남은 돈 vs 예산 초과)</h3>
-                <p className="text-xs text-slate-400 mt-0.5">
-                  빨간색 막대는 예산을 초과한 달이며, 파란색 막대는 예산 내에서 절약한 달입니다.
+                <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
+                  예산 대비 지출 (1년 성과)
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  {reviewYear}년 1월~12월의 예산 달성 성과를 시각적으로 확인합니다.
                 </p>
               </div>
-
-              <div className="flex items-center gap-3 text-xs">
-                <span className="flex items-center gap-1 text-blue-600 font-semibold">
-                  <span className="w-2.5 h-2.5 rounded-sm bg-blue-500" /> 남은 돈
+              <div className="flex items-center gap-3 text-xs font-semibold">
+                <span className="flex items-center gap-1.5 text-blue-600">
+                  <span className="w-2.5 h-2.5 rounded-sm bg-blue-500 inline-block" />
+                  남은돈 (절약)
                 </span>
-                <span className="flex items-center gap-1 text-red-600 font-semibold">
-                  <span className="w-2.5 h-2.5 rounded-sm bg-red-500" /> 예산 초과
+                <span className="flex items-center gap-1.5 text-red-500">
+                  <span className="w-2.5 h-2.5 rounded-sm bg-red-500 inline-block" />
+                  예산초과
                 </span>
               </div>
             </div>
 
-            <div className="h-64 sm:h-72">
+            <div className="h-64 w-full pt-4">
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={yearlyReviewChartData} margin={{ top: 20, right: 20, left: 20, bottom: 5 }}>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#F1F5F9" />
-                  <XAxis dataKey="month" tick={{ fontSize: 11, fill: '#64748B' }} />
+                <BarChart data={yearlyReviewChartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E2E8F0" />
+                  <XAxis dataKey="month" stroke="#64748B" fontSize={11} tickLine={false} />
                   <YAxis
-                    tick={{ fontSize: 11, fill: '#64748B' }}
-                    tickFormatter={(val) => `${(val / 10000).toFixed(0)}만`}
+                    stroke="#64748B"
+                    fontSize={10}
+                    tickLine={false}
+                    tickFormatter={(v) => `${(v / 10000).toLocaleString()}만`}
                   />
                   <Tooltip
-                    formatter={(val: unknown) => `${Number(val).toLocaleString()}원`}
+                    formatter={(value: any) => [
+                      `${Number(value).toLocaleString()}원`,
+                      Number(value) >= 0 ? '남은돈' : '예산초과',
+                    ]}
                   />
                   <ReferenceLine y={0} stroke="#94A3B8" />
-                  <Bar dataKey="net" name="예산 잔여/초과">
+                  <Bar dataKey="net" radius={[4, 4, 0, 0]}>
                     {yearlyReviewChartData.map((entry, index) => (
                       <Cell
                         key={`cell-${index}`}
-                        fill={entry.isOver ? '#EF4444' : '#3B82F6'}
+                        fill={entry.net >= 0 ? '#3B82F6' : '#EF4444'}
                       />
                     ))}
                   </Bar>
@@ -640,14 +706,20 @@ export default function BudgetManagement({
             </div>
           </div>
 
-          {/* 대분류별 1월~12월 상세 매트릭스 표 (스크린샷 2와 100% 동일) */}
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
-            <div className="p-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
-              <h4 className="font-bold text-slate-800 text-sm">
-                {reviewYear}년 대분류별 월간 예산 잔여/초과 상세표
-              </h4>
+          {/* 3-2. 대분류별 1월~12월 상세 매트릭스 표 (네이버 가계부 스크린샷 일치) */}
+          <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <h4 className="text-sm font-bold text-slate-900">
+                  대분류별 월간 남은 돈 / 초과 상세 내역
+                </h4>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  마이너스(-) 금액은 예산을 초과한 지출 항목입니다.
+                </p>
+              </div>
               {loadingReview && (
-                <span className="text-xs text-red-600 font-semibold animate-pulse">
+                <span className="text-xs text-red-600 font-semibold animate-pulse flex items-center gap-1">
+                  <RefreshCw className="w-3 h-3 animate-spin" />
                   데이터 집계 중...
                 </span>
               )}
