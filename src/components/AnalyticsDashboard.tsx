@@ -51,6 +51,45 @@ const COLORS = [
 ];
 
 /**
+ * [모바일/화면 최적화] 초경량 미니멀 단일 툴팁
+ * - 거대한 흰색 박스 대신 아담한 11px 크기로 화면 가림을 원천 방지
+ */
+function SingleCompactTooltip({ active, payload, label }: any) {
+  if (active && payload && payload.length) {
+    const data = payload[0];
+    const name = data.payload?.fullName || data.payload?.name || label || data.name;
+    const value = Number(data.value);
+    return (
+      <div className="bg-slate-900/90 text-white text-[11px] px-2.5 py-1 rounded-lg shadow-md pointer-events-none backdrop-blur-xs flex items-center gap-1.5 whitespace-nowrap border border-slate-700/50">
+        <span className="text-slate-300 font-medium">{name}:</span>
+        <span className="font-bold text-white">{value.toLocaleString()}원</span>
+      </div>
+    );
+  }
+  return null;
+}
+
+/**
+ * [모바일/화면 최적화] 연간 수입/지출 비교 2중 툴팁
+ */
+function DualCompactTooltip({ active, payload, label }: any) {
+  if (active && payload && payload.length) {
+    return (
+      <div className="bg-slate-900/90 text-white text-[11px] px-2.5 py-1.5 rounded-lg shadow-md pointer-events-none backdrop-blur-xs whitespace-nowrap border border-slate-700/50 space-y-0.5">
+        <div className="font-bold text-slate-300 text-[10px] border-b border-slate-700/60 pb-0.5 mb-1">{label}</div>
+        {payload.map((entry: any, index: number) => (
+          <div key={`item-${index}`} className="flex items-center justify-between gap-2.5">
+            <span style={{ color: entry.color }} className="font-medium text-[10px]">{entry.name}:</span>
+            <span className="font-bold">{Number(entry.value).toLocaleString()}원</span>
+          </div>
+        ))}
+      </div>
+    );
+  }
+  return null;
+}
+
+/**
  * 엑셀 및 네이버 가계부를 뛰어넘는 정밀 통계 & 대시보드 컴포넌트
  */
 export default function AnalyticsDashboard({
@@ -450,14 +489,13 @@ export default function AnalyticsDashboard({
                                 />
                               ))}
                             </Pie>
-                            <Tooltip
-                              formatter={(val: unknown) => `${Number(val).toLocaleString()}원`}
-                            />
+                            {/* [요청 반영] 초슬림 미니멀 툴팁 적용 */}
+                            <Tooltip content={<SingleCompactTooltip />} />
                           </PieChart>
                         </ResponsiveContainer>
                       </div>
                     ) : (
-                      /* [옵션 B: 사용자 요청 반영] 예산 중복 제거 -> 순수 대분류별 지출 막대 그래프 */
+                      /* [옵션 B] 순수 대분류별 지출 막대 그래프 */
                       <div className="h-64">
                         <ResponsiveContainer width="100%" height="100%">
                           <BarChart
@@ -470,9 +508,8 @@ export default function AnalyticsDashboard({
                               tick={{ fontSize: 10, fill: '#64748B' }}
                               tickFormatter={(val) => `${(val / 10000).toFixed(0)}만`}
                             />
-                            <Tooltip
-                              formatter={(val: unknown) => [`${Number(val).toLocaleString()}원`, '지출액']}
-                            />
+                            {/* [요청 반영] 초슬림 미니멀 툴팁 적용 */}
+                            <Tooltip content={<SingleCompactTooltip />} />
                             <Bar dataKey="value" name="지출액" radius={[4, 4, 0, 0]}>
                               {categoryMajorData.map((_, index) => (
                                 <Cell
@@ -486,7 +523,7 @@ export default function AnalyticsDashboard({
                       </div>
                     )}
 
-                    {/* [사용자 요청 완벽 반영] 기존 방식의 대분류 상세 지출 내역 목록 표시 */}
+                    {/* 대분류 상세 지출 내역 목록 */}
                     <div className="mt-4 space-y-1.5 max-h-48 overflow-y-auto pr-1">
                       {categoryMajorData.map((item, idx) => (
                         <div
@@ -545,12 +582,8 @@ export default function AnalyticsDashboard({
                             width={65}
                             tickLine={false}
                           />
-                          <Tooltip
-                            formatter={(val: unknown, _name, item: any) => [
-                              `${Number(val).toLocaleString()}원`,
-                              item.payload.fullName,
-                            ]}
-                          />
+                          {/* [요청 반영] 초슬림 미니멀 툴팁 적용 */}
+                          <Tooltip content={<SingleCompactTooltip />} />
                           <Bar dataKey="amount" fill="#3B82F6" radius={[0, 6, 6, 0]} />
                         </BarChart>
                       </ResponsiveContainer>
@@ -727,9 +760,8 @@ export default function AnalyticsDashboard({
                     tick={{ fontSize: 12, fill: '#64748B' }}
                     tickFormatter={(val) => `${(val / 10000).toFixed(0)}만`}
                   />
-                  <Tooltip
-                    formatter={(val: unknown) => `${Number(val).toLocaleString()}원`}
-                  />
+                  {/* [요청 반영] 초슬림 2중 미니멀 툴팁 적용 */}
+                  <Tooltip content={<DualCompactTooltip />} />
                   <Legend
                     verticalAlign="top"
                     align="right"

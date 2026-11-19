@@ -74,6 +74,24 @@ async function getSafeUser(supabase: ReturnType<typeof createClient>) {
 }
 
 /**
+ * [모바일/화면 최적화] 예산반성용 초경량 미니멀 툴팁
+ */
+function BudgetReviewCompactTooltip({ active, payload, label }: any) {
+  if (active && payload && payload.length) {
+    const val = Number(payload[0].value);
+    return (
+      <div className="bg-slate-900/90 text-white text-[11px] px-2.5 py-1 rounded-lg shadow-md pointer-events-none backdrop-blur-xs flex items-center gap-1.5 whitespace-nowrap border border-slate-700/50">
+        <span className="text-slate-300 font-medium">{label}:</span>
+        <span className={`font-bold ${val >= 0 ? 'text-blue-400' : 'text-rose-400'}`}>
+          {val >= 0 ? `+${val.toLocaleString()}원 (남은돈)` : `${val.toLocaleString()}원 (초과)`}
+        </span>
+      </div>
+    );
+  }
+  return null;
+}
+
+/**
  * 네이버 가계부 완벽 호환 '예산쓰기' & '예산반성' 컴포넌트 (모바일 완벽 반응형 UI 지원)
  */
 export default function BudgetManagement({
@@ -768,12 +786,8 @@ export default function BudgetManagement({
                     tickLine={false}
                     tickFormatter={(v) => `${(v / 10000).toLocaleString()}만`}
                   />
-                  <Tooltip
-                    formatter={(value: any) => [
-                      `${Number(value).toLocaleString()}원`,
-                      Number(value) >= 0 ? '남은돈' : '예산초과',
-                    ]}
-                  />
+                  {/* [요청 반영] 초슬림 미니멀 툴팁 적용 */}
+                  <Tooltip content={<BudgetReviewCompactTooltip />} />
                   <ReferenceLine y={0} stroke="#94A3B8" />
                   <Bar dataKey="net" radius={[4, 4, 0, 0]}>
                     {yearlyReviewChartData.map((entry, index) => (
