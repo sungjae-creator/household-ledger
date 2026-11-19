@@ -64,11 +64,8 @@ export default function AnalyticsDashboard({
   // 대시보드 뷰 모드: 'MONTHLY' (월간 분석) | 'YEARLY' (연간 분석)
   const [viewMode, setViewMode] = useState<'MONTHLY' | 'YEARLY'>('MONTHLY');
 
-  // [신규 요청] 지출 현황 뷰 형태: 'PIE' (파이형) | 'BAR' (예산 vs 지출 비교 그래프형)
+  // [신규 요청] 지출 현황 뷰 형태: 'PIE' (파이형) | 'BAR' (대분류 지출 막대 그래프형)
   const [expenseViewType, setExpenseViewType] = useState<'PIE' | 'BAR'>('PIE');
-
-  // 당월 대분류별 예산 데이터 맵 { '식비': 300000, '주거/통신': 350000 }
-  const [monthlyBudgets, setMonthlyBudgets] = useState<{ [major: string]: number }>({});
 
   // 연간 분석 기준 연도 (기본값: 현재 선택된 월의 연도)
   const initialYear = currentMonth ? parseInt(currentMonth.split('-')[0], 10) : new Date().getFullYear();
@@ -77,33 +74,6 @@ export default function AnalyticsDashboard({
   // 연간 1년치 전체 거래내역 상태
   const [yearlyTransactions, setYearlyTransactions] = useState<Transaction[]>([]);
   const [loadingYearly, setLoadingYearly] = useState<boolean>(false);
-
-  /**
-   * 해당 월의 예산 데이터 불러오기
-   */
-  const fetchMonthlyBudgets = useCallback(async () => {
-    if (!currentMonth) return;
-    try {
-      const { data, error } = await supabase
-        .from('budgets')
-        .select('*')
-        .eq('year_month', currentMonth);
-
-      if (!error && data) {
-        const map: { [major: string]: number } = {};
-        data.forEach((b: any) => {
-          map[b.category_major] = Number(b.amount);
-        });
-        setMonthlyBudgets(map);
-      }
-    } catch (err) {
-      console.error('예산 데이터 조회 실패:', err);
-    }
-  }, [supabase, currentMonth]);
-
-  useEffect(() => {
-    fetchMonthlyBudgets();
-  }, [fetchMonthlyBudgets]);
 
   /**
    * 월간 분석: 이전 달로 이동
@@ -208,42 +178,7 @@ export default function AnalyticsDashboard({
       .sort((a, b) => b.value - a.value);
   }, [monthlyExpenseTransactions, monthlyTotalExpense]);
 
-  // (1-B) [신규 요청] 대분류별 예산 vs 실제 지출 비교 데이터 및 총계
-  const { budgetVsExpenseData, totalBudgetVsExpense } = useMemo(() => {
-    const majors = new Set<string>();
-    Object.keys(monthlyBudgets).forEach((m) => majors.add(m));
-    categoryMajorData.forEach((item) => majors.add(item.name));
-
-    let sumBudget = 0;
-    let sumExpense = 0;
-
-    const list = Array.from(majors)
-      .map((major) => {
-        const budget = monthlyBudgets[major] || 0;
-        const expenseItem = categoryMajorData.find((item) => item.name === major);
-        const expense = expenseItem ? expenseItem.value : 0;
-        sumBudget += budget;
-        sumExpense += expense;
-        return {
-          major,
-          budget,
-          expense,
-          diff: budget - expense,
-        };
-      })
-      .sort((a, b) => b.budget - a.budget || b.expense - a.expense);
-
-    return {
-      budgetVsExpenseData: list,
-      totalBudgetVsExpense: {
-        totalBudget: sumBudget,
-        totalExpense: sumExpense,
-        totalRemaining: sumBudget - sumExpense,
-      },
-    };
-  }, [monthlyBudgets, categoryMajorData]);
-
-  // (2) [신규 요청 반영] 지출분석: 소분류 상위 10개 랭킹 (0점 좌측 정렬 & 10개 제한)
+  // (2) 지출분석: 소분류 상위 10개 랭킹 (0점 좌측 정렬 & 10개 제한)
   const subCategoryRankingData = useMemo(() => {
     const map: { [sub: string]: { major: string; subName: string; amount: number } } = {};
     monthlyExpenseTransactions.forEach((tx) => {
@@ -458,7 +393,7 @@ export default function AnalyticsDashboard({
             <div className="space-y-6">
               {/* 상단 2열 그리드: [지출 현황] vs [지출분석] */}
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                {/* 1) [지출 현황] 파이형 vs 예산 비교 그래프형 */}
+                {/* 1) [지출 현황] 파이형 vs 지출 막대 그래프형 */}
                 <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-xs flex flex-col justify-between">
                   <div>
                     <div className="flex items-center justify-between mb-4">
@@ -495,157 +430,85 @@ export default function AnalyticsDashboard({
                     </div>
 
                     {/* [옵션 A] 파이형 도넛 차트 */}
-                    {expenseViewType === 'PIE' && (
-                      <>
-                        <div className="h-64">
-                          <ResponsiveContainer width="100%" height="100%">
-                            <PieChart>
-                              <Pie
-                                data={categoryMajorData}
-                                cx="50%"
-                                cy="50%"
-                                innerRadius={65}
-                                outerRadius={95}
-                                paddingAngle={3}
-                                dataKey="value"
-                              >
-                                {categoryMajorData.map((_, index) => (
-                                  <Cell
-                                    key={`cell-${index}`}
-                                    fill={COLORS[index % COLORS.length]}
-                                  />
-                                ))}
-                              </Pie>
-                              <Tooltip
-                                formatter={(val: unknown) => `${Number(val).toLocaleString()}원`}
-                              />
-                            </PieChart>
-                          </ResponsiveContainer>
-                        </div>
-
-                        {/* 대분류 상세 비중 목록 */}
-                        <div className="mt-4 space-y-1.5 max-h-48 overflow-y-auto pr-1">
-                          {categoryMajorData.map((item, idx) => (
-                            <div
-                              key={item.name}
-                              className="flex items-center justify-between text-xs py-1 border-b border-slate-50 last:border-none"
+                    {expenseViewType === 'PIE' ? (
+                      <div className="h-64">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <PieChart>
+                            <Pie
+                              data={categoryMajorData}
+                              cx="50%"
+                              cy="50%"
+                              innerRadius={65}
+                              outerRadius={95}
+                              paddingAngle={3}
+                              dataKey="value"
                             >
-                              <div className="flex items-center gap-2">
-                                <span
-                                  className="w-2.5 h-2.5 rounded-full shrink-0"
-                                  style={{ backgroundColor: COLORS[idx % COLORS.length] }}
+                              {categoryMajorData.map((_, index) => (
+                                <Cell
+                                  key={`cell-${index}`}
+                                  fill={COLORS[index % COLORS.length]}
                                 />
-                                <span className="font-medium text-slate-700">{item.name}</span>
-                              </div>
-                              <div className="flex items-center gap-3">
-                                <span className="text-slate-400 font-mono">{item.percentage}%</span>
-                                <span className="font-bold text-slate-800">
-                                  {item.value.toLocaleString()}원
-                                </span>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      </>
+                              ))}
+                            </Pie>
+                            <Tooltip
+                              formatter={(val: unknown) => `${Number(val).toLocaleString()}원`}
+                            />
+                          </PieChart>
+                        </ResponsiveContainer>
+                      </div>
+                    ) : (
+                      /* [옵션 B: 사용자 요청 반영] 예산 중복 제거 -> 순수 대분류별 지출 막대 그래프 */
+                      <div className="h-64">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <BarChart
+                            data={categoryMajorData}
+                            margin={{ top: 10, right: 10, left: -20, bottom: 0 }}
+                          >
+                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#F1F5F9" />
+                            <XAxis dataKey="name" tick={{ fontSize: 10, fill: '#334155' }} />
+                            <YAxis
+                              tick={{ fontSize: 10, fill: '#64748B' }}
+                              tickFormatter={(val) => `${(val / 10000).toFixed(0)}만`}
+                            />
+                            <Tooltip
+                              formatter={(val: unknown) => [`${Number(val).toLocaleString()}원`, '지출액']}
+                            />
+                            <Bar dataKey="value" name="지출액" radius={[4, 4, 0, 0]}>
+                              {categoryMajorData.map((_, index) => (
+                                <Cell
+                                  key={`cell-bar-${index}`}
+                                  fill={COLORS[index % COLORS.length]}
+                                />
+                              ))}
+                            </Bar>
+                          </BarChart>
+                        </ResponsiveContainer>
+                      </div>
                     )}
 
-                    {/* [옵션 B: 사용자 요청 완벽 반영] 예산과 실제 지출을 비교하는 그래프 & 테이블 뷰 */}
-                    {expenseViewType === 'BAR' && (
-                      <>
-                        <div className="h-64">
-                          <ResponsiveContainer width="100%" height="100%">
-                            <BarChart
-                              data={budgetVsExpenseData}
-                              margin={{ top: 10, right: 10, left: -20, bottom: 0 }}
-                            >
-                              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#F1F5F9" />
-                              <XAxis dataKey="major" tick={{ fontSize: 10, fill: '#334155' }} />
-                              <YAxis
-                                tick={{ fontSize: 10, fill: '#64748B' }}
-                                tickFormatter={(val) => `${(val / 10000).toFixed(0)}만`}
-                              />
-                              <Tooltip
-                                formatter={(val: unknown) => `${Number(val).toLocaleString()}원`}
-                              />
-                              <Legend
-                                verticalAlign="top"
-                                align="right"
-                                wrapperStyle={{ paddingBottom: '6px', fontSize: '11px' }}
-                              />
-                              <Bar dataKey="budget" name="예산" fill="#3B82F6" radius={[4, 4, 0, 0]} />
-                              <Bar dataKey="expense" name="실제 지출" fill="#EF4444" radius={[4, 4, 0, 0]} />
-                            </BarChart>
-                          </ResponsiveContainer>
-                        </div>
-
-                        {/* [요청 반영] 한 줄 슬래시(/) 제거 -> 깔끔하고 정돈된 테이블(표) 구조로 변경 */}
-                        <div className="mt-4 border border-slate-200 rounded-xl overflow-hidden shadow-2xs">
-                          <div className="max-h-52 overflow-y-auto">
-                            <table className="w-full text-xs text-right border-collapse">
-                              <thead className="bg-slate-50 text-slate-600 font-bold border-b border-slate-200 sticky top-0 z-10 shadow-2xs">
-                                <tr>
-                                  <th className="px-3 py-2 text-left whitespace-nowrap bg-slate-50">대분류</th>
-                                  <th className="px-3 py-2 text-blue-600 whitespace-nowrap bg-slate-50">예산</th>
-                                  <th className="px-3 py-2 text-red-600 whitespace-nowrap bg-slate-50">실제 지출</th>
-                                  <th className="px-3 py-2 whitespace-nowrap bg-slate-50">남은 돈</th>
-                                </tr>
-                              </thead>
-                              <tbody className="divide-y divide-slate-100 font-mono">
-                                {budgetVsExpenseData.map((item) => {
-                                  const remaining = item.budget - item.expense;
-                                  return (
-                                    <tr key={item.major} className="hover:bg-slate-50/70 transition-colors">
-                                      <td className="px-3 py-2 text-left font-sans font-semibold text-slate-800 whitespace-nowrap">
-                                        {item.major}
-                                      </td>
-                                      <td className="px-3 py-2 text-blue-600 font-medium whitespace-nowrap">
-                                        {item.budget.toLocaleString()}원
-                                      </td>
-                                      <td className="px-3 py-2 text-red-600 font-medium whitespace-nowrap">
-                                        {item.expense.toLocaleString()}원
-                                      </td>
-                                      <td
-                                        className={`px-3 py-2 font-bold whitespace-nowrap ${
-                                          remaining < 0
-                                            ? 'text-rose-600'
-                                            : remaining > 0
-                                            ? 'text-emerald-700'
-                                            : 'text-slate-400'
-                                        }`}
-                                      >
-                                        {remaining > 0 ? `+${remaining.toLocaleString()}원` : `${remaining.toLocaleString()}원`}
-                                      </td>
-                                    </tr>
-                                  );
-                                })}
-                              </tbody>
-                              <tfoot className="bg-slate-100 font-bold border-t border-slate-200 sticky bottom-0 z-10 shadow-xs">
-                                <tr>
-                                  <td className="px-3 py-2 text-left font-sans text-slate-900 whitespace-nowrap bg-slate-100">
-                                    합계
-                                  </td>
-                                  <td className="px-3 py-2 text-blue-700 whitespace-nowrap bg-slate-100">
-                                    {totalBudgetVsExpense.totalBudget.toLocaleString()}원
-                                  </td>
-                                  <td className="px-3 py-2 text-red-700 whitespace-nowrap bg-slate-100">
-                                    {totalBudgetVsExpense.totalExpense.toLocaleString()}원
-                                  </td>
-                                  <td
-                                    className={`px-3 py-2 whitespace-nowrap bg-slate-100 ${
-                                      totalBudgetVsExpense.totalRemaining < 0 ? 'text-rose-600' : 'text-emerald-700'
-                                    }`}
-                                  >
-                                    {totalBudgetVsExpense.totalRemaining > 0
-                                      ? `+${totalBudgetVsExpense.totalRemaining.toLocaleString()}원`
-                                      : `${totalBudgetVsExpense.totalRemaining.toLocaleString()}원`}
-                                  </td>
-                                </tr>
-                              </tfoot>
-                            </table>
+                    {/* [사용자 요청 완벽 반영] 기존 방식의 대분류 상세 지출 내역 목록 표시 */}
+                    <div className="mt-4 space-y-1.5 max-h-48 overflow-y-auto pr-1">
+                      {categoryMajorData.map((item, idx) => (
+                        <div
+                          key={item.name}
+                          className="flex items-center justify-between text-xs py-1.5 border-b border-slate-50 last:border-none"
+                        >
+                          <div className="flex items-center gap-2">
+                            <span
+                              className="w-2.5 h-2.5 rounded-full shrink-0"
+                              style={{ backgroundColor: COLORS[idx % COLORS.length] }}
+                            />
+                            <span className="font-semibold text-slate-700">{item.name}</span>
+                          </div>
+                          <div className="flex items-center gap-3">
+                            <span className="text-slate-400 font-mono">{item.percentage}%</span>
+                            <span className="font-bold text-slate-800">
+                              {item.value.toLocaleString()}원
+                            </span>
                           </div>
                         </div>
-                      </>
-                    )}
+                      ))}
+                    </div>
                   </div>
                 </div>
 
