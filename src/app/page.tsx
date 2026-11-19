@@ -222,18 +222,18 @@ export default function Home() {
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900">
-      {/* 1. 상단 네비게이션 헤더 */}
+      {/* 1. 상단 전역 헤더 & 모바일 하단 탭 바 */}
       <Header
         userEmail={userEmail}
         activeTab={activeTab}
         setActiveTab={setActiveTab}
       />
 
-      {/* 2. 메인 컨텐츠 영역 */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      {/* 2. 메인 컨텐츠 영역 (모바일 하단 탭 바 높이를 고려하여 pb-24 패딩 적용) */}
+      <main className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-4 sm:py-8 pb-24 sm:pb-8">
         {/* DB 오류 배너 */}
         {dbErrorMessage && (
-          <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-2xl flex items-start gap-3 text-red-700 text-sm">
+          <div className="mb-4 sm:mb-6 p-4 bg-red-50 border border-red-200 rounded-2xl flex items-start gap-3 text-red-700 text-sm">
             <AlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5" />
             <div className="space-y-1">
               <div className="font-bold">데이터베이스 연동 안내</div>
@@ -244,7 +244,7 @@ export default function Home() {
 
         {/* 초기 카테고리가 없을 때 자동 생성 배너 */}
         {!dbErrorMessage && categories.length === 0 && !loading && (
-          <div className="mb-6 p-5 bg-blue-50 border border-blue-200 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="mb-4 sm:mb-6 p-4 sm:p-5 bg-blue-50 border border-blue-200 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center text-white shrink-0 shadow-sm">
                 <Sparkles className="w-5 h-5" />
@@ -302,7 +302,7 @@ export default function Home() {
               />
             )}
 
-            {/* [탭 3] 통계 & 시각화 대시보드 (월간/연간 정밀 피벗 분석) */}
+            {/* [탭 3] 통계 & 시각화 대시보드 */}
             {activeTab === 'dashboard' && (
               <AnalyticsDashboard
                 transactions={populatedTransactions}
