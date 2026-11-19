@@ -28,7 +28,7 @@ DECLARE
     pm_pocket_cash UUID;          -- 주머니현금 (CASH)
 
 BEGIN
-    -- 1. 현재 로그인/등록된 사용자 ID 조회 (첫 번째 가입 유저 선택)
+    -- 1. 현재 로그인/등록된 사용자 ID 조회
     SELECT id INTO target_user_id FROM auth.users ORDER BY created_at ASC LIMIT 1;
 
     IF target_user_id IS NULL THEN
@@ -36,7 +36,6 @@ BEGIN
     END IF;
 
     -- 2. 결제수단 확인 및 생성 (없으면 자동 생성)
-    -- 2-1) 춘식이모바일로카 (카드)
     SELECT id INTO pm_chunsik_card FROM public.payment_methods WHERE user_id = target_user_id AND name = '춘식이모바일로카';
     IF pm_chunsik_card IS NULL THEN
         INSERT INTO public.payment_methods (user_id, name, type, balance, sort_order)
@@ -44,7 +43,6 @@ BEGIN
         RETURNING id INTO pm_chunsik_card;
     END IF;
 
-    -- 2-2) 삼성카드 (카드)
     SELECT id INTO pm_samsung_card FROM public.payment_methods WHERE user_id = target_user_id AND name = '삼성카드';
     IF pm_samsung_card IS NULL THEN
         INSERT INTO public.payment_methods (user_id, name, type, balance, sort_order)
@@ -52,7 +50,6 @@ BEGIN
         RETURNING id INTO pm_samsung_card;
     END IF;
 
-    -- 2-3) 하나저축은행 (은행 통장)
     SELECT id INTO pm_hana_bank FROM public.payment_methods WHERE user_id = target_user_id AND name = '하나저축은행';
     IF pm_hana_bank IS NULL THEN
         INSERT INTO public.payment_methods (user_id, name, type, balance, sort_order)
@@ -60,7 +57,6 @@ BEGIN
         RETURNING id INTO pm_hana_bank;
     END IF;
 
-    -- 2-4) 주머니현금 (현금)
     SELECT id INTO pm_pocket_cash FROM public.payment_methods WHERE user_id = target_user_id AND name = '주머니현금';
     IF pm_pocket_cash IS NULL THEN
         INSERT INTO public.payment_methods (user_id, name, type, balance, sort_order)
@@ -68,225 +64,204 @@ BEGIN
         RETURNING id INTO pm_pocket_cash;
     END IF;
 
-    -- 3. 카테고리 확인 및 생성 (대분류 > 소분류)
+    -- 3. 카테고리 확인 및 생성 (categories 테이블 컬럼: major_name, sub_name 사용)
     -- 3-1) 생활용품 > 잡화소모
     SELECT id INTO cat_life_sundries FROM public.categories WHERE user_id = target_user_id AND major_name = '생활용품' AND sub_name = '잡화소모';
     IF cat_life_sundries IS NULL THEN
-        INSERT INTO public.categories (user_id, name, major_name, sub_name, type, color, sort_order)
-        VALUES (target_user_id, '잡화소모', '생활용품', '잡화소모', 'EXPENSE', '#EF4444', 20)
+        INSERT INTO public.categories (user_id, major_name, sub_name, type, color, sort_order)
+        VALUES (target_user_id, '생활용품', '잡화소모', 'EXPENSE', '#EF4444', 20)
         RETURNING id INTO cat_life_sundries;
     END IF;
 
     -- 3-2) 식비 > 부식
-    SELECT id INTO cat_food_staple FROM public.categories WHERE user_id = target_user_id AND major_name = '식비' AND (sub_name = '부식' OR name = '부식') LIMIT 1;
+    SELECT id INTO cat_food_staple FROM public.categories WHERE user_id = target_user_id AND major_name = '식비' AND sub_name = '부식' LIMIT 1;
     IF cat_food_staple IS NULL THEN
-        INSERT INTO public.categories (user_id, name, major_name, sub_name, type, color, sort_order)
-        VALUES (target_user_id, '부식', '식비', '부식', 'EXPENSE', '#EF4444', 21)
+        INSERT INTO public.categories (user_id, major_name, sub_name, type, color, sort_order)
+        VALUES (target_user_id, '식비', '부식', 'EXPENSE', '#EF4444', 21)
         RETURNING id INTO cat_food_staple;
     END IF;
 
     -- 3-3) 식비 > 외식
-    SELECT id INTO cat_food_dining FROM public.categories WHERE user_id = target_user_id AND major_name = '식비' AND (sub_name = '외식' OR name = '외식') LIMIT 1;
+    SELECT id INTO cat_food_dining FROM public.categories WHERE user_id = target_user_id AND major_name = '식비' AND sub_name = '외식' LIMIT 1;
     IF cat_food_dining IS NULL THEN
-        INSERT INTO public.categories (user_id, name, major_name, sub_name, type, color, sort_order)
-        VALUES (target_user_id, '외식', '식비', '외식', 'EXPENSE', '#EF4444', 22)
+        INSERT INTO public.categories (user_id, major_name, sub_name, type, color, sort_order)
+        VALUES (target_user_id, '식비', '외식', 'EXPENSE', '#EF4444', 22)
         RETURNING id INTO cat_food_dining;
     END IF;
 
     -- 3-4) 식비 > 간식
-    SELECT id INTO cat_food_snack FROM public.categories WHERE user_id = target_user_id AND major_name = '식비' AND (sub_name = '간식' OR sub_name = '카페/간식' OR name = '간식') LIMIT 1;
+    SELECT id INTO cat_food_snack FROM public.categories WHERE user_id = target_user_id AND major_name = '식비' AND (sub_name = '간식' OR sub_name = '카페/간식') LIMIT 1;
     IF cat_food_snack IS NULL THEN
-        INSERT INTO public.categories (user_id, name, major_name, sub_name, type, color, sort_order)
-        VALUES (target_user_id, '간식', '식비', '간식', 'EXPENSE', '#EF4444', 23)
+        INSERT INTO public.categories (user_id, major_name, sub_name, type, color, sort_order)
+        VALUES (target_user_id, '식비', '간식', 'EXPENSE', '#EF4444', 23)
         RETURNING id INTO cat_food_snack;
     END IF;
 
     -- 3-5) 식비 > 커피/음료
     SELECT id INTO cat_food_coffee FROM public.categories WHERE user_id = target_user_id AND major_name = '식비' AND sub_name = '커피/음료';
     IF cat_food_coffee IS NULL THEN
-        INSERT INTO public.categories (user_id, name, major_name, sub_name, type, color, sort_order)
-        VALUES (target_user_id, '커피/음료', '식비', '커피/음료', 'EXPENSE', '#EF4444', 24)
+        INSERT INTO public.categories (user_id, major_name, sub_name, type, color, sort_order)
+        VALUES (target_user_id, '식비', '커피/음료', 'EXPENSE', '#EF4444', 24)
         RETURNING id INTO cat_food_coffee;
     END IF;
 
     -- 3-6) 교통/차량 > 주유비
-    SELECT id INTO cat_traffic_gas FROM public.categories WHERE user_id = target_user_id AND major_name = '교통/차량' AND (sub_name = '주유비' OR name = '주유비') LIMIT 1;
+    SELECT id INTO cat_traffic_gas FROM public.categories WHERE user_id = target_user_id AND major_name = '교통/차량' AND sub_name = '주유비' LIMIT 1;
     IF cat_traffic_gas IS NULL THEN
-        INSERT INTO public.categories (user_id, name, major_name, sub_name, type, color, sort_order)
-        VALUES (target_user_id, '주유비', '교통/차량', '주유비', 'EXPENSE', '#EF4444', 25)
+        INSERT INTO public.categories (user_id, major_name, sub_name, type, color, sort_order)
+        VALUES (target_user_id, '교통/차량', '주유비', 'EXPENSE', '#EF4444', 25)
         RETURNING id INTO cat_traffic_gas;
     END IF;
 
     -- 3-7) 교통/차량 > 주차비
     SELECT id INTO cat_traffic_parking FROM public.categories WHERE user_id = target_user_id AND major_name = '교통/차량' AND sub_name = '주차비';
     IF cat_traffic_parking IS NULL THEN
-        INSERT INTO public.categories (user_id, name, major_name, sub_name, type, color, sort_order)
-        VALUES (target_user_id, '주차비', '교통/차량', '주차비', 'EXPENSE', '#EF4444', 26)
+        INSERT INTO public.categories (user_id, major_name, sub_name, type, color, sort_order)
+        VALUES (target_user_id, '교통/차량', '주차비', 'EXPENSE', '#EF4444', 26)
         RETURNING id INTO cat_traffic_parking;
     END IF;
 
     -- 3-8) 건강/문화 > 여행
     SELECT id INTO cat_culture_travel FROM public.categories WHERE user_id = target_user_id AND major_name = '건강/문화' AND sub_name = '여행';
     IF cat_culture_travel IS NULL THEN
-        INSERT INTO public.categories (user_id, name, major_name, sub_name, type, color, sort_order)
-        VALUES (target_user_id, '여행', '건강/문화', '여행', 'EXPENSE', '#EF4444', 27)
+        INSERT INTO public.categories (user_id, major_name, sub_name, type, color, sort_order)
+        VALUES (target_user_id, '건강/문화', '여행', 'EXPENSE', '#EF4444', 27)
         RETURNING id INTO cat_culture_travel;
     END IF;
 
     -- 3-9) 건강/문화 > 보장성보험
     SELECT id INTO cat_culture_insurance FROM public.categories WHERE user_id = target_user_id AND major_name = '건강/문화' AND sub_name = '보장성보험';
     IF cat_culture_insurance IS NULL THEN
-        INSERT INTO public.categories (user_id, name, major_name, sub_name, type, color, sort_order)
-        VALUES (target_user_id, '보장성보험', '건강/문화', '보장성보험', 'EXPENSE', '#EF4444', 28)
+        INSERT INTO public.categories (user_id, major_name, sub_name, type, color, sort_order)
+        VALUES (target_user_id, '건강/문화', '보장성보험', 'EXPENSE', '#EF4444', 28)
         RETURNING id INTO cat_culture_insurance;
     END IF;
 
     -- 3-10) 건강/문화 > 문화생활
     SELECT id INTO cat_culture_life FROM public.categories WHERE user_id = target_user_id AND major_name = '건강/문화' AND sub_name = '문화생활';
     IF cat_culture_life IS NULL THEN
-        INSERT INTO public.categories (user_id, name, major_name, sub_name, type, color, sort_order)
-        VALUES (target_user_id, '문화생활', '건강/문화', '문화생활', 'EXPENSE', '#EF4444', 29)
+        INSERT INTO public.categories (user_id, major_name, sub_name, type, color, sort_order)
+        VALUES (target_user_id, '건강/문화', '문화생활', 'EXPENSE', '#EF4444', 29)
         RETURNING id INTO cat_culture_life;
     END IF;
 
     -- 3-11) 경조사/회비 > 모임회비
     SELECT id INTO cat_congrat_meeting FROM public.categories WHERE user_id = target_user_id AND major_name = '경조사/회비' AND sub_name = '모임회비';
     IF cat_congrat_meeting IS NULL THEN
-        INSERT INTO public.categories (user_id, name, major_name, sub_name, type, color, sort_order)
-        VALUES (target_user_id, '모임회비', '경조사/회비', '모임회비', 'EXPENSE', '#EF4444', 30)
+        INSERT INTO public.categories (user_id, major_name, sub_name, type, color, sort_order)
+        VALUES (target_user_id, '경조사/회비', '모임회비', 'EXPENSE', '#EF4444', 30)
         RETURNING id INTO cat_congrat_meeting;
     END IF;
 
     -- 3-12) 의복/미용 > 헤어/뷰티
     SELECT id INTO cat_beauty_hair FROM public.categories WHERE user_id = target_user_id AND major_name = '의복/미용' AND sub_name = '헤어/뷰티';
     IF cat_beauty_hair IS NULL THEN
-        INSERT INTO public.categories (user_id, name, major_name, sub_name, type, color, sort_order)
-        VALUES (target_user_id, '헤어/뷰티', '의복/미용', '헤어/뷰티', 'EXPENSE', '#EF4444', 31)
+        INSERT INTO public.categories (user_id, major_name, sub_name, type, color, sort_order)
+        VALUES (target_user_id, '의복/미용', '헤어/뷰티', 'EXPENSE', '#EF4444', 31)
         RETURNING id INTO cat_beauty_hair;
     END IF;
 
     -- 4. 2026년 11월 네이버 가계부 21건의 실제 거래 내역 일괄 등록 (중복 등록 방지)
-    -- 1) 2026-11-01 다이소 테이프 (카드 4,000원)
     IF NOT EXISTS (SELECT 1 FROM public.transactions WHERE user_id = target_user_id AND transaction_date = '2026-11-01' AND description = '다이소' AND amount = 4000) THEN
         INSERT INTO public.transactions (user_id, transaction_date, type, amount, category_id, payment_method_id, description, memo)
         VALUES (target_user_id, '2026-11-01', 'EXPENSE', 4000, cat_life_sundries, pm_chunsik_card, '다이소', '테이프');
     END IF;
 
-    -- 2) 2026-11-02 딴지마켓 김치 (카드 39,500원)
     IF NOT EXISTS (SELECT 1 FROM public.transactions WHERE user_id = target_user_id AND transaction_date = '2026-11-02' AND description = '딴지마켓' AND amount = 39500) THEN
         INSERT INTO public.transactions (user_id, transaction_date, type, amount, category_id, payment_method_id, description, memo)
         VALUES (target_user_id, '2026-11-02', 'EXPENSE', 39500, cat_food_staple, pm_chunsik_card, '딴지마켓', '김치');
     END IF;
 
-    -- 3) 2026-11-04 네이버쇼핑 토마토 소스 (카드 15,000원)
     IF NOT EXISTS (SELECT 1 FROM public.transactions WHERE user_id = target_user_id AND transaction_date = '2026-11-04' AND description = '네이버쇼핑' AND amount = 15000) THEN
         INSERT INTO public.transactions (user_id, transaction_date, type, amount, category_id, payment_method_id, description, memo)
         VALUES (target_user_id, '2026-11-04', 'EXPENSE', 15000, cat_food_staple, pm_chunsik_card, '네이버쇼핑', '토마토 소스');
     END IF;
 
-    -- 4) 2026-11-05 처인세종주유소 주유비 (카드 60,000원)
     IF NOT EXISTS (SELECT 1 FROM public.transactions WHERE user_id = target_user_id AND transaction_date = '2026-11-05' AND description = '처인세종주유소' AND amount = 60000) THEN
         INSERT INTO public.transactions (user_id, transaction_date, type, amount, category_id, payment_method_id, description, memo)
         VALUES (target_user_id, '2026-11-05', 'EXPENSE', 60000, cat_traffic_gas, pm_chunsik_card, '처인세종주유소', '주유비');
     END IF;
 
-    -- 5) 2026-11-05 Nol 모텔비 (카드 50,000원)
     IF NOT EXISTS (SELECT 1 FROM public.transactions WHERE user_id = target_user_id AND transaction_date = '2026-11-05' AND description = 'Nol' AND amount = 50000) THEN
         INSERT INTO public.transactions (user_id, transaction_date, type, amount, category_id, payment_method_id, description, memo)
         VALUES (target_user_id, '2026-11-05', 'EXPENSE', 50000, cat_culture_travel, pm_chunsik_card, 'Nol', '모텔비');
     END IF;
 
-    -- 6) 2026-11-05 키다리식품 빵 (카드 5,000원)
     IF NOT EXISTS (SELECT 1 FROM public.transactions WHERE user_id = target_user_id AND transaction_date = '2026-11-05' AND description = '키다리식품' AND amount = 5000) THEN
         INSERT INTO public.transactions (user_id, transaction_date, type, amount, category_id, payment_method_id, description, memo)
         VALUES (target_user_id, '2026-11-05', 'EXPENSE', 5000, cat_food_snack, pm_chunsik_card, '키다리식품', '빵');
     END IF;
 
-    -- 7) 2026-11-05 원조할매곰창 곰탕 (카드 10,000원)
     IF NOT EXISTS (SELECT 1 FROM public.transactions WHERE user_id = target_user_id AND transaction_date = '2026-11-05' AND description = '원조할매곰창' AND amount = 10000) THEN
         INSERT INTO public.transactions (user_id, transaction_date, type, amount, category_id, payment_method_id, description, memo)
         VALUES (target_user_id, '2026-11-05', 'EXPENSE', 10000, cat_food_dining, pm_chunsik_card, '원조할매곰창', '곰탕');
     END IF;
 
-    -- 8) 2026-11-06 내장산국립공원 주차비 (카드 5,000원)
     IF NOT EXISTS (SELECT 1 FROM public.transactions WHERE user_id = target_user_id AND transaction_date = '2026-11-06' AND description = '내장산국립공원' AND amount = 5000) THEN
         INSERT INTO public.transactions (user_id, transaction_date, type, amount, category_id, payment_method_id, description, memo)
         VALUES (target_user_id, '2026-11-06', 'EXPENSE', 5000, cat_traffic_parking, pm_chunsik_card, '내장산국립공원', '주차비');
     END IF;
 
-    -- 9) 2026-11-06 노령주유소 주유비 (현금 30,000원)
     IF NOT EXISTS (SELECT 1 FROM public.transactions WHERE user_id = target_user_id AND transaction_date = '2026-11-06' AND description = '노령주유소' AND amount = 30000) THEN
         INSERT INTO public.transactions (user_id, transaction_date, type, amount, category_id, payment_method_id, description, memo)
         VALUES (target_user_id, '2026-11-06', 'EXPENSE', 30000, cat_traffic_gas, pm_pocket_cash, '노령주유소', '주유비');
     END IF;
 
-    -- 10) 2026-11-06 남산칼국수 칼국수 (카드 10,000원)
     IF NOT EXISTS (SELECT 1 FROM public.transactions WHERE user_id = target_user_id AND transaction_date = '2026-11-06' AND description = '남산칼국수' AND amount = 10000) THEN
         INSERT INTO public.transactions (user_id, transaction_date, type, amount, category_id, payment_method_id, description, memo)
         VALUES (target_user_id, '2026-11-06', 'EXPENSE', 10000, cat_food_dining, pm_chunsik_card, '남산칼국수', '칼국수');
     END IF;
 
-    -- 11) 2026-11-06 내장산개발 커피 (카드 7,000원)
     IF NOT EXISTS (SELECT 1 FROM public.transactions WHERE user_id = target_user_id AND transaction_date = '2026-11-06' AND description = '내장산개발' AND amount = 7000) THEN
         INSERT INTO public.transactions (user_id, transaction_date, type, amount, category_id, payment_method_id, description, memo)
         VALUES (target_user_id, '2026-11-06', 'EXPENSE', 7000, cat_food_coffee, pm_chunsik_card, '내장산개발', '커피');
     END IF;
 
-    -- 12) 2026-11-06 내장산국립공원 케이블카 (카드 7,000원)
     IF NOT EXISTS (SELECT 1 FROM public.transactions WHERE user_id = target_user_id AND transaction_date = '2026-11-06' AND description = '내장산국립공원' AND amount = 7000) THEN
         INSERT INTO public.transactions (user_id, transaction_date, type, amount, category_id, payment_method_id, description, memo)
         VALUES (target_user_id, '2026-11-06', 'EXPENSE', 7000, cat_culture_travel, pm_chunsik_card, '내장산국립공원', '케이블카');
     END IF;
 
-    -- 13) 2026-11-07 가족통장 가족회비 (통장 50,000원)
     IF NOT EXISTS (SELECT 1 FROM public.transactions WHERE user_id = target_user_id AND transaction_date = '2026-11-07' AND description = '가족통장' AND amount = 50000) THEN
         INSERT INTO public.transactions (user_id, transaction_date, type, amount, category_id, payment_method_id, description, memo)
         VALUES (target_user_id, '2026-11-07', 'EXPENSE', 50000, cat_congrat_meeting, pm_hana_bank, '가족통장', '가족회비');
     END IF;
 
-    -- 14) 2026-11-08 건강보험공단 건강보험료 (통장 63,850원)
     IF NOT EXISTS (SELECT 1 FROM public.transactions WHERE user_id = target_user_id AND transaction_date = '2026-11-08' AND description = '건강보험공단' AND amount = 63850) THEN
         INSERT INTO public.transactions (user_id, transaction_date, type, amount, category_id, payment_method_id, description, memo)
         VALUES (target_user_id, '2026-11-08', 'EXPENSE', 63850, cat_culture_insurance, pm_hana_bank, '건강보험공단', '건강보험료');
     END IF;
 
-    -- 15) 2026-11-11 GOOGLE*TIDALMusicHi 문화생활 (카드 6,708.56원)
     IF NOT EXISTS (SELECT 1 FROM public.transactions WHERE user_id = target_user_id AND transaction_date = '2026-11-11' AND description = 'GOOGLE*TIDALMusicHi') THEN
         INSERT INTO public.transactions (user_id, transaction_date, type, amount, category_id, payment_method_id, description, memo)
         VALUES (target_user_id, '2026-11-11', 'EXPENSE', 6708.56, cat_culture_life, pm_samsung_card, 'GOOGLE*TIDALMusicHi', 'GOOGLE*TIDALMusicHi');
     END IF;
 
-    -- 16) 2026-11-13 Café Monet 커피 (카드 8,400원)
     IF NOT EXISTS (SELECT 1 FROM public.transactions WHERE user_id = target_user_id AND transaction_date = '2026-11-13' AND description = 'Café Monet' AND amount = 8400) THEN
         INSERT INTO public.transactions (user_id, transaction_date, type, amount, category_id, payment_method_id, description, memo)
         VALUES (target_user_id, '2026-11-13', 'EXPENSE', 8400, cat_food_coffee, pm_chunsik_card, 'Café Monet', '커피');
     END IF;
 
-    -- 17) 2026-11-13 맘스터치 버거 (카드 5,200원)
     IF NOT EXISTS (SELECT 1 FROM public.transactions WHERE user_id = target_user_id AND transaction_date = '2026-11-13' AND description = '맘스터치' AND amount = 5200) THEN
         INSERT INTO public.transactions (user_id, transaction_date, type, amount, category_id, payment_method_id, description, memo)
         VALUES (target_user_id, '2026-11-13', 'EXPENSE', 5200, cat_food_dining, pm_chunsik_card, '맘스터치', '버거');
     END IF;
 
-    -- 18) 2026-11-13 광동석유㈜ 주유비 (카드 30,000원)
     IF NOT EXISTS (SELECT 1 FROM public.transactions WHERE user_id = target_user_id AND transaction_date = '2026-11-13' AND description = '광동석유㈜' AND amount = 30000) THEN
         INSERT INTO public.transactions (user_id, transaction_date, type, amount, category_id, payment_method_id, description, memo)
         VALUES (target_user_id, '2026-11-13', 'EXPENSE', 30000, cat_traffic_gas, pm_chunsik_card, '광동석유㈜', '주유비');
     END IF;
 
-    -- 19) 2026-11-14 롯데마트 장보기 (카드 48,500원)
     IF NOT EXISTS (SELECT 1 FROM public.transactions WHERE user_id = target_user_id AND transaction_date = '2026-11-14' AND description = '롯데마트' AND amount = 48500) THEN
         INSERT INTO public.transactions (user_id, transaction_date, type, amount, category_id, payment_method_id, description, memo)
         VALUES (target_user_id, '2026-11-14', 'EXPENSE', 48500, cat_food_staple, pm_chunsik_card, '롯데마트', '장보기');
     END IF;
 
-    -- 20) 2026-11-14 김정희헤어클럽 이발비 (현금 20,000원)
     IF NOT EXISTS (SELECT 1 FROM public.transactions WHERE user_id = target_user_id AND transaction_date = '2026-11-14' AND description = '김정희헤어클럽' AND amount = 20000) THEN
         INSERT INTO public.transactions (user_id, transaction_date, type, amount, category_id, payment_method_id, description, memo)
         VALUES (target_user_id, '2026-11-14', 'EXPENSE', 20000, cat_beauty_hair, pm_pocket_cash, '김정희헤어클럽', '이발비');
     END IF;
 
-    -- 21) 2026-11-19 성북동빵집 빵 (카드 9,500원)
     IF NOT EXISTS (SELECT 1 FROM public.transactions WHERE user_id = target_user_id AND transaction_date = '2026-11-19' AND description = '성북동빵집' AND amount = 9500) THEN
         INSERT INTO public.transactions (user_id, transaction_date, type, amount, category_id, payment_method_id, description, memo)
         VALUES (target_user_id, '2026-11-19', 'EXPENSE', 9500, cat_food_snack, pm_chunsik_card, '성북동빵집', '빵');

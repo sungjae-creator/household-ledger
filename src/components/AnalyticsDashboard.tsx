@@ -26,7 +26,8 @@ import {
   TrendingDown,
   TrendingUp,
   Coins,
-  Calendar,
+  Layers,
+  Store,
 } from 'lucide-react';
 
 interface AnalyticsDashboardProps {
@@ -103,8 +104,14 @@ export default function AnalyticsDashboard({
   // 대시보드 뷰 모드: 'MONTHLY' (월간 분석) | 'YEARLY' (연간 분석)
   const [viewMode, setViewMode] = useState<'MONTHLY' | 'YEARLY'>('MONTHLY');
 
-  // [신규 요청] 지출 현황 뷰 형태: 'PIE' (파이형) | 'BAR' (대분류 지출 막대 그래프형)
+  // 지출 현황 뷰 형태: 'PIE' (파이형) | 'BAR' (대분류 지출 막대 그래프형)
   const [expenseViewType, setExpenseViewType] = useState<'PIE' | 'BAR'>('PIE');
+
+  // [신규 요청 2] 지출 분석 탭: 'CATEGORY' (분류별 지출) | 'MERCHANT' (주요 사용처)
+  const [analysisTab, setAnalysisTab] = useState<'CATEGORY' | 'MERCHANT'>('CATEGORY');
+
+  // [신규 요청 3] 분류별 지출에서 선택된 대분류 이름 (기본값: 지출 1위 대분류)
+  const [selectedMajorCategory, setSelectedMajorCategory] = useState<string>('');
 
   // 연간 분석 기준 연도 (기본값: 현재 선택된 월의 연도)
   const initialYear = currentMonth ? parseInt(currentMonth.split('-')[0], 10) : new Date().getFullYear();
@@ -184,16 +191,19 @@ export default function AnalyticsDashboard({
   // =========================================================================
   // 1. 월간 분석 데이터 계산
   // =========================================================================
+  // 당월 지출 내역 (통계 제외 플래그 제외)
   const monthlyExpenseTransactions = useMemo(() => {
     return transactions.filter(
       (tx) => tx.type === 'EXPENSE' && !tx.exclude_from_stats
     );
   }, [transactions]);
 
+  // 당월 총 지출액
   const monthlyTotalExpense = useMemo(() => {
     return monthlyExpenseTransactions.reduce((sum, tx) => sum + Number(tx.amount), 0);
   }, [monthlyExpenseTransactions]);
 
+  // 당월 총 수입액
   const monthlyTotalIncome = useMemo(() => {
     return transactions
       .filter((tx) => tx.type === 'INCOME' && !tx.exclude_from_stats)
@@ -217,26 +227,59 @@ export default function AnalyticsDashboard({
       .sort((a, b) => b.value - a.value);
   }, [monthlyExpenseTransactions, monthlyTotalExpense]);
 
-  // (2) 지출분석: 소분류 상위 10개 랭킹 (0점 좌측 정렬 & 10개 제한)
-  const subCategoryRankingData = useMemo(() => {
-    const map: { [sub: string]: { major: string; subName: string; amount: number } } = {};
-    monthlyExpenseTransactions.forEach((tx) => {
-      const subName = tx.category ? tx.category.sub_name : '기타';
-      const majorName = tx.category ? tx.category.major_name : '기타';
-      const key = `${majorName} > ${subName}`;
-
-      if (!map[key]) {
-        map[key] = { major: majorName, subName, amount: 0 };
+  // 대분류가 변경되거나 로드되었을 때, 선택된 대분류 기본값을 지출 1위 대분류로 자동 동기화
+  useEffect(() => {
+    if (categoryMajorData.length > 0) {
+      // 현재 선택된 대분류가 목록에 없으면 1위 대분류로 설정
+      const exists = categoryMajorData.some((item) => item.name === selectedMajorCategory);
+      if (!selectedMajorCategory || !exists) {
+        setSelectedMajorCategory(categoryMajorData[0].name);
       }
-      map[key].amount += Number(tx.amount);
+    } else {
+      setSelectedMajorCategory('');
+    }
+  }, [categoryMajorData, selectedMajorCategory]);
+
+  // (2-A) [신규 요청 3] 선택된 대분류 내의 "소분류별 지출 내역"
+  const subCategoryOfSelectedMajor = useMemo(() => {
+    if (!selectedMajorCategory) return [];
+
+    const targetTransactions = monthlyExpenseTransactions.filter(
+      (tx) => (tx.category ? tx.category.major_name : '기타/미분류') === selectedMajorCategory
+    );
+
+    const majorTotalSpent = targetTransactions.reduce((sum, tx) => sum + Number(tx.amount), 0);
+    const map: { [sub: string]: number } = {};
+
+    targetTransactions.forEach((tx) => {
+      const sub = tx.category ? tx.category.sub_name : '기타';
+      map[sub] = (map[sub] || 0) + Number(tx.amount);
     });
 
     return Object.entries(map)
-      .map(([name, data]) => ({
+      .map(([name, value]) => ({
+        name,
+        value,
+        percentage: majorTotalSpent > 0 ? ((value / majorTotalSpent) * 100).toFixed(1) : '0',
+      }))
+      .sort((a, b) => b.value - a.value);
+  }, [monthlyExpenseTransactions, selectedMajorCategory]);
+
+  // (2-B) [신규 요청 4] 주요 사용처(description) 상위 10개 랭킹
+  const topMerchantRankingData = useMemo(() => {
+    const map: { [merchant: string]: number } = {};
+
+    monthlyExpenseTransactions.forEach((tx) => {
+      const merchant = tx.description ? tx.description.trim() : '미기재';
+      map[merchant] = (map[merchant] || 0) + Number(tx.amount);
+    });
+
+    return Object.entries(map)
+      .map(([name, amount]) => ({
         fullName: name,
-        shortName: data.subName, // 차트 Y축에는 짧은 소분류명 표시하여 0축을 좌측으로 바짝 이동
-        amount: data.amount,
-        percentage: monthlyTotalExpense > 0 ? ((data.amount / monthlyTotalExpense) * 100).toFixed(1) : '0',
+        shortName: name.length > 7 ? `${name.slice(0, 6)}…` : name,
+        amount,
+        percentage: monthlyTotalExpense > 0 ? ((amount / monthlyTotalExpense) * 100).toFixed(1) : '0',
       }))
       .sort((a, b) => b.amount - a.amount)
       .slice(0, 10); // 상위 10개로 제한
@@ -425,12 +468,12 @@ export default function AnalyticsDashboard({
                 {currentMonth.split('-')[0]}년 {currentMonth.split('-')[1]}월에는 지출 데이터가 없습니다
               </h3>
               <p className="text-xs text-slate-500 mt-1">
-                지출 내역을 기록하시면 카테고리 비중, 소분류 순위, 카드별 통계가 실시간으로 나타납니다.
+                지출 내역을 기록하시면 카테고리 비중, 분류별 지출, 사용처 순위, 카드별 통계가 실시간으로 나타납니다.
               </p>
             </div>
           ) : (
             <div className="space-y-6">
-              {/* 상단 2열 그리드: [지출 현황] vs [지출분석] */}
+              {/* 상단 2열 그리드: [지출 현황] vs [지출 분석 (분류별 지출 / 주요 사용처)] */}
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 {/* 1) [지출 현황] 파이형 vs 지출 막대 그래프형 */}
                 <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-xs flex flex-col justify-between">
@@ -489,13 +532,12 @@ export default function AnalyticsDashboard({
                                 />
                               ))}
                             </Pie>
-                            {/* [요청 반영] 초슬림 미니멀 툴팁 적용 */}
                             <Tooltip content={<SingleCompactTooltip />} />
                           </PieChart>
                         </ResponsiveContainer>
                       </div>
                     ) : (
-                      /* [옵션 B] 순수 대분류별 지출 막대 그래프 */
+                      /* [옵션 B] 순수 대분류별 지출 막대 그래프 (지출 현황 그래프형) */
                       <div className="h-64">
                         <ResponsiveContainer width="100%" height="100%">
                           <BarChart
@@ -508,7 +550,6 @@ export default function AnalyticsDashboard({
                               tick={{ fontSize: 10, fill: '#64748B' }}
                               tickFormatter={(val) => `${(val / 10000).toFixed(0)}만`}
                             />
-                            {/* [요청 반영] 초슬림 미니멀 툴팁 적용 */}
                             <Tooltip content={<SingleCompactTooltip />} />
                             <Bar dataKey="value" name="지출액" radius={[4, 4, 0, 0]}>
                               {categoryMajorData.map((_, index) => (
@@ -549,68 +590,184 @@ export default function AnalyticsDashboard({
                   </div>
                 </div>
 
-                {/* 2) 지출분석 (0점 좌측 정렬 & 10개 제한) */}
+                {/* 2) [신규 개편] 지출 분석 (분류별 지출 vs 주요 사용처 2개 탭) */}
                 <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-xs flex flex-col justify-between">
                   <div>
-                    <div className="flex items-center justify-between mb-4">
+                    {/* 상단 타이틀 및 탭 전환 버튼 */}
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
                       <h3 className="font-bold text-slate-800 flex items-center gap-2 text-base">
                         <Award className="w-5 h-5 text-amber-500" />
-                        지출분석
+                        지출 분석
                       </h3>
-                      <span className="text-xs text-slate-400">상위 10개 항목</span>
-                    </div>
 
-                    {/* 모바일에서 0선이 좌측으로 정돈된 막대 그래프 */}
-                    <div className="h-64">
-                      <ResponsiveContainer width="100%" height="100%">
-                        <BarChart
-                          data={subCategoryRankingData}
-                          layout="vertical"
-                          margin={{ top: 5, right: 15, left: -10, bottom: 5 }}
+                      {/* 탭 1: 분류별 지출 | 탭 2: 주요 사용처 */}
+                      <div className="flex items-center bg-slate-100 p-0.5 rounded-lg border border-slate-200 self-start sm:self-auto">
+                        <button
+                          onClick={() => setAnalysisTab('CATEGORY')}
+                          className={`px-2.5 py-1 text-xs font-bold rounded-md transition-colors flex items-center gap-1 ${
+                            analysisTab === 'CATEGORY'
+                              ? 'bg-white text-blue-600 shadow-xs'
+                              : 'text-slate-500 hover:text-slate-800'
+                          }`}
                         >
-                          <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#F1F5F9" />
-                          <XAxis
-                            type="number"
-                            domain={[0, 'auto']}
-                            tick={{ fontSize: 10, fill: '#64748B' }}
-                            tickFormatter={(val) => `${(val / 10000).toFixed(0)}만`}
-                          />
-                          <YAxis
-                            type="category"
-                            dataKey="shortName"
-                            tick={{ fontSize: 10, fill: '#334155' }}
-                            width={65}
-                            tickLine={false}
-                          />
-                          {/* [요청 반영] 초슬림 미니멀 툴팁 적용 */}
-                          <Tooltip content={<SingleCompactTooltip />} />
-                          <Bar dataKey="amount" fill="#3B82F6" radius={[0, 6, 6, 0]} />
-                        </BarChart>
-                      </ResponsiveContainer>
+                          <Layers className="w-3.5 h-3.5" />
+                          <span>분류별 지출</span>
+                        </button>
+                        <button
+                          onClick={() => setAnalysisTab('MERCHANT')}
+                          className={`px-2.5 py-1 text-xs font-bold rounded-md transition-colors flex items-center gap-1 ${
+                            analysisTab === 'MERCHANT'
+                              ? 'bg-white text-blue-600 shadow-xs'
+                              : 'text-slate-500 hover:text-slate-800'
+                          }`}
+                        >
+                          <Store className="w-3.5 h-3.5" />
+                          <span>주요 사용처</span>
+                        </button>
+                      </div>
                     </div>
-                  </div>
 
-                  {/* 소분류 상세 랭킹 리스트 (최대 10개) */}
-                  <div className="mt-4 space-y-1.5 max-h-48 overflow-y-auto pr-1">
-                    {subCategoryRankingData.map((item, idx) => (
-                      <div
-                        key={item.fullName}
-                        className="flex items-center justify-between text-xs py-1 border-b border-slate-50 last:border-none"
-                      >
-                        <div className="flex items-center gap-2">
-                          <span className="w-5 h-5 rounded-full bg-slate-100 text-slate-700 font-bold flex items-center justify-center text-[10px] shrink-0">
-                            {idx + 1}
-                          </span>
-                          <span className="font-semibold text-slate-700 truncate">{item.fullName}</span>
+                    {/* ========================================================= */}
+                    {/* [탭 1: 분류별 지출] 대분류 드롭다운 + 소분류 지출 막대 그래프   */}
+                    {/* ========================================================= */}
+                    {analysisTab === 'CATEGORY' && (
+                      <div>
+                        {/* 대분류 선택 드롭다운 */}
+                        <div className="flex items-center justify-between mb-3 bg-slate-50 px-3 py-2 rounded-xl border border-slate-200/70">
+                          <span className="text-xs font-semibold text-slate-600">대분류 선택:</span>
+                          <select
+                            value={selectedMajorCategory}
+                            onChange={(e) => setSelectedMajorCategory(e.target.value)}
+                            className="text-xs font-bold bg-white text-slate-800 border border-slate-300 rounded-lg px-2.5 py-1 focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer shadow-2xs"
+                          >
+                            {categoryMajorData.map((major) => (
+                              <option key={major.name} value={major.name}>
+                                {major.name} ({Number(major.value).toLocaleString()}원)
+                              </option>
+                            ))}
+                          </select>
                         </div>
-                        <div className="flex items-center gap-3 shrink-0">
-                          <span className="text-slate-400 font-mono">{item.percentage}%</span>
-                          <span className="font-bold text-slate-800">
-                            {item.amount.toLocaleString()}원
-                          </span>
+
+                        {/* 소분류별 지출 막대 그래프 (지출 현황 그래프형 스타일) */}
+                        {subCategoryOfSelectedMajor.length === 0 ? (
+                          <div className="h-56 flex items-center justify-center text-xs text-slate-400">
+                            선택된 대분류에 등록된 소분류 지출 내역이 없습니다.
+                          </div>
+                        ) : (
+                          <div className="h-56">
+                            <ResponsiveContainer width="100%" height="100%">
+                              <BarChart
+                                data={subCategoryOfSelectedMajor}
+                                margin={{ top: 10, right: 10, left: -20, bottom: 0 }}
+                              >
+                                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#F1F5F9" />
+                                <XAxis dataKey="name" tick={{ fontSize: 10, fill: '#334155' }} />
+                                <YAxis
+                                  tick={{ fontSize: 10, fill: '#64748B' }}
+                                  tickFormatter={(val) => `${(val / 10000).toFixed(0)}만`}
+                                />
+                                <Tooltip content={<SingleCompactTooltip />} />
+                                <Bar dataKey="value" name="지출액" radius={[4, 4, 0, 0]}>
+                                  {subCategoryOfSelectedMajor.map((_, index) => (
+                                    <Cell
+                                      key={`cell-sub-${index}`}
+                                      fill={COLORS[index % COLORS.length]}
+                                    />
+                                  ))}
+                                </Bar>
+                              </BarChart>
+                            </ResponsiveContainer>
+                          </div>
+                        )}
+
+                        {/* 선택된 대분류 내 소분류 상세 지출 리스트 */}
+                        <div className="mt-4 space-y-1.5 max-h-48 overflow-y-auto pr-1">
+                          {subCategoryOfSelectedMajor.map((item, idx) => (
+                            <div
+                              key={item.name}
+                              className="flex items-center justify-between text-xs py-1.5 border-b border-slate-50 last:border-none"
+                            >
+                              <div className="flex items-center gap-2">
+                                <span
+                                  className="w-2.5 h-2.5 rounded-full shrink-0"
+                                  style={{ backgroundColor: COLORS[idx % COLORS.length] }}
+                                />
+                                <span className="font-semibold text-slate-700">{item.name}</span>
+                              </div>
+                              <div className="flex items-center gap-3">
+                                <span className="text-slate-400 font-mono">{item.percentage}%</span>
+                                <span className="font-bold text-slate-800">
+                                  {item.value.toLocaleString()}원
+                                </span>
+                              </div>
+                            </div>
+                          ))}
                         </div>
                       </div>
-                    ))}
+                    )}
+
+                    {/* ========================================================= */}
+                    {/* [탭 2: 주요 사용처] 상위 10개 사용처 세로 랭킹 바 차트        */}
+                    {/* ========================================================= */}
+                    {analysisTab === 'MERCHANT' && (
+                      <div>
+                        <div className="flex items-center justify-between mb-3 text-xs text-slate-400">
+                          <span>당월 지출액 기준 상위 사용처</span>
+                          <span>TOP 10</span>
+                        </div>
+
+                        {/* 사용처 랭킹 수평 바 차트 (레이아웃 vertical) */}
+                        <div className="h-56">
+                          <ResponsiveContainer width="100%" height="100%">
+                            <BarChart
+                              data={topMerchantRankingData}
+                              layout="vertical"
+                              margin={{ top: 5, right: 15, left: -10, bottom: 5 }}
+                            >
+                              <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#F1F5F9" />
+                              <XAxis
+                                type="number"
+                                domain={[0, 'auto']}
+                                tick={{ fontSize: 10, fill: '#64748B' }}
+                                tickFormatter={(val) => `${(val / 10000).toFixed(0)}만`}
+                              />
+                              <YAxis
+                                type="category"
+                                dataKey="shortName"
+                                tick={{ fontSize: 10, fill: '#334155' }}
+                                width={65}
+                                tickLine={false}
+                              />
+                              <Tooltip content={<SingleCompactTooltip />} />
+                              <Bar dataKey="amount" fill="#3B82F6" radius={[0, 6, 6, 0]} />
+                            </BarChart>
+                          </ResponsiveContainer>
+                        </div>
+
+                        {/* 상위 사용처 상세 랭킹 리스트 (1위~10위) */}
+                        <div className="mt-4 space-y-1.5 max-h-48 overflow-y-auto pr-1">
+                          {topMerchantRankingData.map((item, idx) => (
+                            <div
+                              key={item.fullName}
+                              className="flex items-center justify-between text-xs py-1 border-b border-slate-50 last:border-none"
+                            >
+                              <div className="flex items-center gap-2 min-w-0">
+                                <span className="w-5 h-5 rounded-full bg-slate-100 text-slate-700 font-bold flex items-center justify-center text-[10px] shrink-0">
+                                  {idx + 1}
+                                </span>
+                                <span className="font-semibold text-slate-700 truncate">{item.fullName}</span>
+                              </div>
+                              <div className="flex items-center gap-3 shrink-0">
+                                <span className="text-slate-400 font-mono">{item.percentage}%</span>
+                                <span className="font-bold text-slate-800">
+                                  {item.amount.toLocaleString()}원
+                                </span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
@@ -760,7 +917,6 @@ export default function AnalyticsDashboard({
                     tick={{ fontSize: 12, fill: '#64748B' }}
                     tickFormatter={(val) => `${(val / 10000).toFixed(0)}만`}
                   />
-                  {/* [요청 반영] 초슬림 2중 미니멀 툴팁 적용 */}
                   <Tooltip content={<DualCompactTooltip />} />
                   <Legend
                     verticalAlign="top"
