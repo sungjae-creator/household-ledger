@@ -277,6 +277,7 @@ export default function AnalyticsDashboard({
     return Object.entries(map)
       .map(([name, amount]) => ({
         fullName: name,
+        // Y축 공간에 맞게 7자 초과 시 줄임표 처리
         shortName: name.length > 7 ? `${name.slice(0, 6)}…` : name,
         amount,
         percentage: monthlyTotalExpense > 0 ? ((amount / monthlyTotalExpense) * 100).toFixed(1) : '0',
@@ -650,11 +651,11 @@ export default function AnalyticsDashboard({
 
                         {/* 소분류별 지출 막대 그래프 (지출 현황 그래프형 스타일) */}
                         {subCategoryOfSelectedMajor.length === 0 ? (
-                          <div className="h-56 flex items-center justify-center text-xs text-slate-400">
+                          <div className="h-64 flex items-center justify-center text-xs text-slate-400">
                             선택된 대분류에 등록된 소분류 지출 내역이 없습니다.
                           </div>
                         ) : (
-                          <div className="h-56">
+                          <div className="h-64">
                             <ResponsiveContainer width="100%" height="100%">
                               <BarChart
                                 data={subCategoryOfSelectedMajor}
@@ -716,13 +717,13 @@ export default function AnalyticsDashboard({
                           <span>TOP 10</span>
                         </div>
 
-                        {/* 사용처 랭킹 수평 바 차트 (레이아웃 vertical) */}
-                        <div className="h-56">
+                        {/* 사용처 랭킹 수평 바 차트 (interval={0}으로 10개 전원 100% 표시) */}
+                        <div className="h-64">
                           <ResponsiveContainer width="100%" height="100%">
                             <BarChart
                               data={topMerchantRankingData}
                               layout="vertical"
-                              margin={{ top: 5, right: 15, left: -10, bottom: 5 }}
+                              margin={{ top: 5, right: 15, left: -5, bottom: 5 }}
                             >
                               <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#F1F5F9" />
                               <XAxis
@@ -734,8 +735,9 @@ export default function AnalyticsDashboard({
                               <YAxis
                                 type="category"
                                 dataKey="shortName"
+                                interval={0}
                                 tick={{ fontSize: 10, fill: '#334155' }}
-                                width={65}
+                                width={72}
                                 tickLine={false}
                               />
                               <Tooltip content={<SingleCompactTooltip />} />
