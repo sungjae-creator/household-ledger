@@ -30,6 +30,8 @@ import {
   Store,
   Table as TableIcon,
   CalendarDays,
+  Wallet,
+  Banknote,
 } from 'lucide-react';
 
 interface AnalyticsDashboardProps {
@@ -115,6 +117,9 @@ export default function AnalyticsDashboard({
   // 분류별 지출에서 선택된 대분류 이름 (기본값: 지출 1위 대분류)
   const [selectedMajorCategory, setSelectedMajorCategory] = useState<string>('');
 
+  // [신규 요청] 결제 수단별 지출 탭: 'CASH' (현금 및 결제 계좌) | 'CARD' (카드)
+  const [paymentTab, setPaymentTab] = useState<'CASH' | 'CARD'>('CASH');
+
   // 연간 분석 기준 연도 (기본값: 현재 선택된 월의 연도)
   const initialYear = currentMonth ? parseInt(currentMonth.split('-')[0], 10) : new Date().getFullYear();
   const [selectedYear, setSelectedYear] = useState<number>(initialYear);
@@ -144,7 +149,7 @@ export default function AnalyticsDashboard({
   const handleNextMonth = () => {
     if (!setCurrentMonth || !currentMonth) return;
     let [year, month] = currentMonth.split('-').map(Number);
-    month += 1;
+    month -= 1;
     if (month > 12) {
       month = 1;
       year += 1;
@@ -286,28 +291,71 @@ export default function AnalyticsDashboard({
       .slice(0, 10);
   }, [monthlyExpenseTransactions, monthlyTotalExpense]);
 
-  // (3) 카드별 지출 금액 통계 데이터 (카드로 결제된 내역만 필터링)
-  const cardExpenseData = useMemo(() => {
-    const map: { [cardName: string]: number } = {};
-    let totalCardSpent = 0;
+  // =========================================================================
+  // (3) [신규 개편] 결제 수단별 지출 (현금/계좌 탭 vs 카드 탭)
+  // =========================================================================
+  const paymentMethodExpenseData = useMemo(() => {
+    // 1) 카드 지출 맵 (CARD)
+    const cardMap: { [cardName: string]: number } = {};
+    let totalCard = 0;
+
+    // 2) 현금 및 결제 계좌 지출 맵 (CASH, BANK)
+    const cashMap: { [cashName: string]: { amount: number; type: string } } = {};
+    let totalCash = 0;
 
     monthlyExpenseTransactions.forEach((tx) => {
       const pm = tx.payment_method || paymentMethods.find((p) => p.id === tx.payment_method_id);
-      if (pm && pm.type === 'CARD') {
-        map[pm.name] = (map[pm.name] || 0) + Number(tx.amount);
-        totalCardSpent += Number(tx.amount);
+      const amount = Number(tx.amount);
+
+      if (pm) {
+        if (pm.type === 'CARD') {
+          cardMap[pm.name] = (cardMap[pm.name] || 0) + amount;
+          totalCard += amount;
+        } else if (pm.type === 'CASH' || pm.type === 'BANK') {
+          if (!cashMap[pm.name]) {
+            cashMap[pm.name] = { amount: 0, type: pm.type };
+          }
+          cashMap[pm.name].amount += amount;
+          totalCash += amount;
+        }
+      } else {
+        // 결제수단 미지정 건은 현금 범주에 포함
+        const fallbackName = '기타/미지정 현금';
+        if (!cashMap[fallbackName]) {
+          cashMap[fallbackName] = { amount: 0, type: 'CASH' };
+        }
+        cashMap[fallbackName].amount += amount;
+        totalCash += amount;
       }
     });
 
+    const cardItems = Object.entries(cardMap)
+      .map(([name, amount]) => ({
+        name,
+        type: 'CARD',
+        amount,
+        percentage: totalCard > 0 ? ((amount / totalCard) * 100).toFixed(1) : '0',
+      }))
+      .sort((a, b) => b.amount - a.amount);
+
+    const cashItems = Object.entries(cashMap)
+      .map(([name, data]) => ({
+        name,
+        type: data.type, // 'CASH' 또는 'BANK'
+        amount: data.amount,
+        percentage: totalCash > 0 ? ((data.amount / totalCash) * 100).toFixed(1) : '0',
+      }))
+      .sort((a, b) => b.amount - a.amount);
+
     return {
-      totalCardSpent,
-      items: Object.entries(map)
-        .map(([name, amount]) => ({
-          name,
-          amount,
-          percentage: totalCardSpent > 0 ? ((amount / totalCardSpent) * 100).toFixed(1) : '0',
-        }))
-        .sort((a, b) => b.amount - a.amount),
+      card: {
+        total: totalCard,
+        items: cardItems,
+      },
+      cash: {
+        total: totalCash,
+        items: cashItems,
+      },
     };
   }, [monthlyExpenseTransactions, paymentMethods]);
 
@@ -469,7 +517,7 @@ export default function AnalyticsDashboard({
                 {currentMonth.split('-')[0]}년 {currentMonth.split('-')[1]}월에는 지출 데이터가 없습니다
               </h3>
               <p className="text-xs text-slate-500 mt-1">
-                지출 내역을 기록하시면 카테고리 비중, 분류별 지출, 사용처 순위, 카드별 통계가 실시간으로 나타납니다.
+                지출 내역을 기록하시면 카테고리 비중, 분류별 지출, 사용처 순위, 결제 수단별 통계가 실시간으로 나타납니다.
               </p>
             </div>
           ) : (
@@ -765,58 +813,161 @@ export default function AnalyticsDashboard({
                 </div>
               </div>
 
-              {/* 3) 카드별 지출 금액 통계 화면 */}
+              {/* ============================================================= */}
+              {/* 3) [신규 개편] 결제 수단별 지출 (현금 탭 vs 카드 탭)           */}
+              {/* ============================================================= */}
               <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-xs">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-6">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
                   <div>
                     <h3 className="font-bold text-slate-800 flex items-center gap-2 text-base">
-                      <CreditCard className="w-5 h-5 text-purple-600" />
-                      카드별 지출 금액 실적
+                      <Wallet className="w-5 h-5 text-indigo-600" />
+                      결제 수단별 지출
                     </h3>
                     <p className="text-xs text-slate-500 mt-0.5">
-                      이번 달 신용/체크카드로 결제된 내역만 모아 카드별 소비액을 분석합니다.
+                      현금(출금통장 포함)과 신용/체크카드별 소비액을 나누어 정밀하게 분석합니다.
                     </p>
                   </div>
-                  <div className="bg-purple-50 text-purple-700 font-bold px-3 py-1.5 rounded-xl text-xs self-start sm:self-auto">
-                    카드 총 지출: {cardExpenseData.totalCardSpent.toLocaleString()}원
+
+                  {/* 현금 / 카드 탭 토글 & 총액 뱃지 */}
+                  <div className="flex flex-wrap items-center gap-2.5">
+                    {/* 탭 버튼: 현금 vs 카드 */}
+                    <div className="flex items-center bg-slate-100 p-0.5 rounded-lg border border-slate-200">
+                      <button
+                        onClick={() => setPaymentTab('CASH')}
+                        className={`px-3 py-1.5 text-xs font-bold rounded-md transition-colors flex items-center gap-1.5 ${
+                          paymentTab === 'CASH'
+                            ? 'bg-white text-emerald-600 shadow-xs'
+                            : 'text-slate-500 hover:text-slate-800'
+                        }`}
+                      >
+                        <Banknote className="w-3.5 h-3.5" />
+                        <span>현금</span>
+                      </button>
+                      <button
+                        onClick={() => setPaymentTab('CARD')}
+                        className={`px-3 py-1.5 text-xs font-bold rounded-md transition-colors flex items-center gap-1.5 ${
+                          paymentTab === 'CARD'
+                            ? 'bg-white text-purple-600 shadow-xs'
+                            : 'text-slate-500 hover:text-slate-800'
+                        }`}
+                      >
+                        <CreditCard className="w-3.5 h-3.5" />
+                        <span>카드</span>
+                      </button>
+                    </div>
+
+                    {/* 해당 탭 총 지출 뱃지 */}
+                    <div
+                      className={`font-bold px-3 py-1.5 rounded-xl text-xs ${
+                        paymentTab === 'CASH'
+                          ? 'bg-emerald-50 text-emerald-700'
+                          : 'bg-purple-50 text-purple-700'
+                      }`}
+                    >
+                      {paymentTab === 'CASH' ? '현금 총 지출' : '카드 총 지출'}:{' '}
+                      {(paymentTab === 'CASH'
+                        ? paymentMethodExpenseData.cash.total
+                        : paymentMethodExpenseData.card.total
+                      ).toLocaleString()}원
+                    </div>
                   </div>
                 </div>
 
-                {cardExpenseData.items.length === 0 ? (
-                  <div className="p-8 text-center text-slate-400 text-xs bg-slate-50 rounded-xl">
-                    이번 달에 카드로 결제된 지출 내역이 없습니다.
-                  </div>
-                ) : (
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {cardExpenseData.items.map((card, idx) => (
-                      <div
-                        key={card.name}
-                        className="p-4 bg-slate-50/70 border border-slate-200/80 rounded-xl space-y-2"
-                      >
-                        <div className="flex items-center justify-between text-xs">
-                          <div className="flex items-center gap-2 font-bold text-slate-800">
-                            <CreditCard className="w-4 h-4 text-purple-600" />
-                            <span>{card.name}</span>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <span className="text-slate-400 font-mono">{card.percentage}%</span>
-                            <span className="font-extrabold text-purple-700 text-sm">
-                              {card.amount.toLocaleString()}원
-                            </span>
-                          </div>
-                        </div>
-
-                        <div className="w-full h-2.5 bg-slate-200 rounded-full overflow-hidden">
-                          <div
-                            className="h-full bg-purple-600 rounded-full transition-all duration-500"
-                            style={{
-                              width: `${card.percentage}%`,
-                              backgroundColor: COLORS[idx % COLORS.length],
-                            }}
-                          />
-                        </div>
+                {/* [탭 1: 현금 및 결제 계좌 지출 목록] */}
+                {paymentTab === 'CASH' && (
+                  <div>
+                    {paymentMethodExpenseData.cash.items.length === 0 ? (
+                      <div className="p-8 text-center text-slate-400 text-xs bg-slate-50 rounded-xl">
+                        이번 달에 현금 또는 결제 계좌(출금통장)로 지출된 내역이 없습니다.
                       </div>
-                    ))}
+                    ) : (
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {paymentMethodExpenseData.cash.items.map((item, idx) => (
+                          <div
+                            key={item.name}
+                            className="p-4 bg-slate-50/70 border border-slate-200/80 rounded-xl space-y-2"
+                          >
+                            <div className="flex items-center justify-between text-xs">
+                              <div className="flex items-center gap-2 font-bold text-slate-800">
+                                {item.type === 'BANK' ? (
+                                  <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0" />
+                                ) : (
+                                  <Banknote className="w-4 h-4 text-emerald-600 shrink-0" />
+                                )}
+                                <span>{item.name}</span>
+                                <span className="text-[10px] bg-slate-200/60 text-slate-500 px-1.5 py-0.2 rounded font-normal">
+                                  {item.type === 'BANK' ? '결제계좌' : '현금'}
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <span className="text-slate-400 font-mono">{item.percentage}%</span>
+                                <span className="font-extrabold text-emerald-700 text-sm">
+                                  {item.amount.toLocaleString()}원
+                                </span>
+                              </div>
+                            </div>
+
+                            {/* 프로그레스 바 */}
+                            <div className="w-full h-2.5 bg-slate-200 rounded-full overflow-hidden">
+                              <div
+                                className="h-full rounded-full transition-all duration-500"
+                                style={{
+                                  width: `${item.percentage}%`,
+                                  backgroundColor: COLORS[idx % COLORS.length],
+                                }}
+                              />
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* [탭 2: 카드별 지출 목록] */}
+                {paymentTab === 'CARD' && (
+                  <div>
+                    {paymentMethodExpenseData.card.items.length === 0 ? (
+                      <div className="p-8 text-center text-slate-400 text-xs bg-slate-50 rounded-xl">
+                        이번 달에 신용/체크카드로 결제된 지출 내역이 없습니다.
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {paymentMethodExpenseData.card.items.map((card, idx) => (
+                          <div
+                            key={card.name}
+                            className="p-4 bg-slate-50/70 border border-slate-200/80 rounded-xl space-y-2"
+                          >
+                            <div className="flex items-center justify-between text-xs">
+                              <div className="flex items-center gap-2 font-bold text-slate-800">
+                                <CreditCard className="w-4 h-4 text-purple-600 shrink-0" />
+                                <span>{card.name}</span>
+                                <span className="text-[10px] bg-purple-100/60 text-purple-600 px-1.5 py-0.2 rounded font-normal">
+                                  카드
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <span className="text-slate-400 font-mono">{card.percentage}%</span>
+                                <span className="font-extrabold text-purple-700 text-sm">
+                                  {card.amount.toLocaleString()}원
+                                </span>
+                              </div>
+                            </div>
+
+                            {/* 프로그레스 바 */}
+                            <div className="w-full h-2.5 bg-slate-200 rounded-full overflow-hidden">
+                              <div
+                                className="h-full rounded-full transition-all duration-500"
+                                style={{
+                                  width: `${card.percentage}%`,
+                                  backgroundColor: COLORS[idx % COLORS.length],
+                                }}
+                              />
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -879,8 +1030,7 @@ export default function AnalyticsDashboard({
 
           {/* =================================================================== */}
           {/* [모바일 전용 뷰: block sm:hidden]                                   */}
-          {/* 모바일에서는 좁아서 찌그러지는 그래프와 테이블을 숨기고,                  */}
-          {/* 가독성이 뛰어난 [월별 주요 요약 카드]만 전면에 시원하게 표시!           */}
+          {/* 모바일에서는 월별 주요 요약 카드만 전면에 시원하게 표시                 */}
           {/* =================================================================== */}
           <div className="block sm:hidden space-y-3">
             <div className="flex items-center justify-between px-1">
@@ -961,7 +1111,6 @@ export default function AnalyticsDashboard({
 
           {/* =================================================================== */}
           {/* [PC/태블릿 전용 뷰: hidden sm:block]                                */}
-          {/* 가로 공간이 넉넉한 PC/태블릿에서는 그래프와 상세 테이블을 정상 표시      */}
           {/* =================================================================== */}
           <div className="hidden sm:block space-y-6">
             {/* 1월~12월 월별 수입 vs 지출 비교 막대 그래프 (PC 전용) */}
