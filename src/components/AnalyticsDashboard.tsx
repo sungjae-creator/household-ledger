@@ -28,6 +28,7 @@ import {
   Coins,
   Layers,
   Store,
+  Table as TableIcon,
 } from 'lucide-react';
 
 interface AnalyticsDashboardProps {
@@ -230,7 +231,6 @@ export default function AnalyticsDashboard({
   // 대분류가 변경되거나 로드되었을 때, 선택된 대분류 기본값을 지출 1위 대분류로 자동 동기화
   useEffect(() => {
     if (categoryMajorData.length > 0) {
-      // 현재 선택된 대분류가 목록에 없으면 1위 대분류로 설정
       const exists = categoryMajorData.some((item) => item.name === selectedMajorCategory);
       if (!selectedMajorCategory || !exists) {
         setSelectedMajorCategory(categoryMajorData[0].name);
@@ -277,13 +277,12 @@ export default function AnalyticsDashboard({
     return Object.entries(map)
       .map(([name, amount]) => ({
         fullName: name,
-        // Y축 공간에 맞게 7자 초과 시 줄임표 처리
         shortName: name.length > 7 ? `${name.slice(0, 6)}…` : name,
         amount,
         percentage: monthlyTotalExpense > 0 ? ((amount / monthlyTotalExpense) * 100).toFixed(1) : '0',
       }))
       .sort((a, b) => b.amount - a.amount)
-      .slice(0, 10); // 상위 10개로 제한
+      .slice(0, 10);
   }, [monthlyExpenseTransactions, monthlyTotalExpense]);
 
   // (3) 카드별 지출 금액 통계 데이터 (카드로 결제된 내역만 필터링)
@@ -836,7 +835,7 @@ export default function AnalyticsDashboard({
       )}
 
       {/* ===================================================================== */}
-      {/* 3. [연간 종합 분석 모드] 화면                                          */}
+      {/* 3. [연간 종합 분석 모드] 화면 (모바일 친화형 완벽 개편)                */}
       {/* ===================================================================== */}
       {viewMode === 'YEARLY' && (
         <div className="space-y-6">
@@ -887,9 +886,9 @@ export default function AnalyticsDashboard({
             </div>
           </div>
 
-          {/* 1월~12월 월별 수입 vs 지출 비교 막대 그래프 */}
-          <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-xs">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-6">
+          {/* 1월~12월 월별 수입 vs 지출 비교 막대 그래프 (모바일 가로 스크롤 최적화) */}
+          <div className="bg-white rounded-2xl p-4 sm:p-6 border border-slate-200 shadow-xs">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4">
               <div>
                 <h3 className="font-bold text-slate-800 flex items-center gap-2 text-base">
                   <BarChart3 className="w-5 h-5 text-indigo-600" />
@@ -900,53 +899,73 @@ export default function AnalyticsDashboard({
                 </p>
               </div>
 
-              {loadingYearly && (
-                <span className="text-xs text-indigo-600 font-semibold animate-pulse">
-                  1년치 데이터 분석 중...
+              <div className="flex items-center gap-2 self-start sm:self-auto">
+                <span className="sm:hidden text-[11px] bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded-md font-semibold">
+                  👈 좌우로 넘겨보기
                 </span>
-              )}
+                {loadingYearly && (
+                  <span className="text-xs text-indigo-600 font-semibold animate-pulse">
+                    분석 중...
+                  </span>
+                )}
+              </div>
             </div>
 
-            <div className="h-80 sm:h-96">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart
-                  data={yearlyMonthlyComparisonData}
-                  margin={{ top: 20, right: 20, left: 20, bottom: 5 }}
-                >
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#F1F5F9" />
-                  <XAxis dataKey="month" tick={{ fontSize: 12, fill: '#334155' }} />
-                  <YAxis
-                    tick={{ fontSize: 12, fill: '#64748B' }}
-                    tickFormatter={(val) => `${(val / 10000).toFixed(0)}만`}
-                  />
-                  <Tooltip content={<DualCompactTooltip />} />
-                  <Legend
-                    verticalAlign="top"
-                    align="right"
-                    wrapperStyle={{ paddingBottom: '10px', fontSize: '12px' }}
-                  />
-                  <Bar dataKey="income" name="수입" fill="#10B981" radius={[4, 4, 0, 0]} />
-                  <Bar dataKey="expense" name="지출" fill="#EF4444" radius={[4, 4, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
+            {/* 모바일에서 글자가 세로로 찌그러지지 않도록 가로 스크롤 지원 (min-width: 580px) */}
+            <div className="overflow-x-auto pb-2 -mx-1 px-1">
+              <div className="min-w-[580px] sm:min-w-0 h-80 sm:h-96">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart
+                    data={yearlyMonthlyComparisonData}
+                    margin={{ top: 20, right: 20, left: -10, bottom: 5 }}
+                  >
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#F1F5F9" />
+                    <XAxis dataKey="month" tick={{ fontSize: 12, fill: '#334155' }} />
+                    <YAxis
+                      tick={{ fontSize: 11, fill: '#64748B' }}
+                      tickFormatter={(val) => `${(val / 10000).toFixed(0)}만`}
+                    />
+                    <Tooltip content={<DualCompactTooltip />} />
+                    <Legend
+                      verticalAlign="top"
+                      align="right"
+                      wrapperStyle={{ paddingBottom: '10px', fontSize: '12px' }}
+                    />
+                    <Bar dataKey="income" name="수입" fill="#10B981" radius={[4, 4, 0, 0]} />
+                    <Bar dataKey="expense" name="지출" fill="#EF4444" radius={[4, 4, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
             </div>
           </div>
 
-          {/* 1월~12월 상세 요약 테이블 (엑셀 피벗 스타일) */}
-          <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-xs">
-            <h4 className="font-bold text-slate-800 text-sm mb-4">
-              {selectedYear}년 월별 데이터 요약표 (엑셀 시트 뷰)
-            </h4>
+          {/* 1월~12월 상세 요약표 (모바일 카드 뷰 + 엑셀 시트 뷰) */}
+          <div className="bg-white rounded-2xl p-4 sm:p-6 border border-slate-200 shadow-xs">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h4 className="font-bold text-slate-800 text-sm flex items-center gap-2">
+                  <TableIcon className="w-4 h-4 text-indigo-600" />
+                  {selectedYear}년 월별 데이터 요약표
+                </h4>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  1월부터 12월까지의 수입, 지출, 순저축액 및 저축률 종합 표입니다.
+                </p>
+              </div>
+              <span className="sm:hidden text-[11px] bg-slate-100 text-slate-500 px-2 py-0.5 rounded-md font-medium">
+                👈 좌우 스크롤
+              </span>
+            </div>
 
-            <div className="overflow-x-auto">
-              <table className="w-full text-xs text-left">
+            {/* 1) 모바일/태블릿/PC 공통: 텍스트 세로 깨짐 없는 엑셀 피벗 시트 뷰 */}
+            <div className="overflow-x-auto -mx-2 px-2 pb-1 border border-slate-100 rounded-xl">
+              <table className="w-full text-xs text-left whitespace-nowrap min-w-[500px]">
                 <thead className="bg-slate-50 text-slate-600 font-bold border-b border-slate-200">
                   <tr>
-                    <th className="px-4 py-2.5">월</th>
-                    <th className="px-4 py-2.5 text-right">수입 합계</th>
-                    <th className="px-4 py-2.5 text-right">지출 합계</th>
-                    <th className="px-4 py-2.5 text-right">순 저축/잔여</th>
-                    <th className="px-4 py-2.5 text-right">저축률</th>
+                    <th className="px-3.5 py-2.5 sticky left-0 bg-slate-50 shadow-2xs z-10">월</th>
+                    <th className="px-3.5 py-2.5 text-right">수입 합계</th>
+                    <th className="px-3.5 py-2.5 text-right">지출 합계</th>
+                    <th className="px-3.5 py-2.5 text-right">순 저축/잔여</th>
+                    <th className="px-3.5 py-2.5 text-right">저축률</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
@@ -955,22 +974,24 @@ export default function AnalyticsDashboard({
                     const rate = row.income > 0 ? ((net / row.income) * 100).toFixed(1) : '0.0';
 
                     return (
-                      <tr key={row.month} className="hover:bg-slate-50/70">
-                        <td className="px-4 py-2 font-bold text-slate-700">{row.month}</td>
-                        <td className="px-4 py-2 text-right text-emerald-600 font-medium">
+                      <tr key={row.month} className="hover:bg-slate-50/70 transition-colors">
+                        <td className="px-3.5 py-2.5 font-bold text-slate-800 sticky left-0 bg-white z-10 border-r border-slate-100">
+                          {row.month}
+                        </td>
+                        <td className="px-3.5 py-2.5 text-right text-emerald-600 font-semibold font-mono">
                           {row.income > 0 ? `+${row.income.toLocaleString()}원` : '-'}
                         </td>
-                        <td className="px-4 py-2 text-right text-red-600 font-medium">
+                        <td className="px-3.5 py-2.5 text-right text-red-600 font-semibold font-mono">
                           {row.expense > 0 ? `-${row.expense.toLocaleString()}원` : '-'}
                         </td>
                         <td
-                          className={`px-4 py-2 text-right font-bold ${
+                          className={`px-3.5 py-2.5 text-right font-bold font-mono ${
                             net > 0 ? 'text-blue-700' : net < 0 ? 'text-red-600' : 'text-slate-400'
                           }`}
                         >
                           {net !== 0 ? `${net > 0 ? '+' : ''}${net.toLocaleString()}원` : '-'}
                         </td>
-                        <td className="px-4 py-2 text-right font-mono text-slate-500">
+                        <td className="px-3.5 py-2.5 text-right font-mono text-slate-600">
                           {row.income > 0 ? `${rate}%` : '-'}
                         </td>
                       </tr>
@@ -978,6 +999,48 @@ export default function AnalyticsDashboard({
                   })}
                 </tbody>
               </table>
+            </div>
+
+            {/* 2) 모바일 전용 콤팩트 카드 리스트 (한눈에 보기 쉬운 직관적 뷰) */}
+            <div className="mt-4 sm:hidden space-y-2 border-t border-slate-100 pt-4">
+              <span className="text-xs font-bold text-slate-700 block mb-2">월별 주요 요약 카드</span>
+              <div className="grid grid-cols-1 gap-2">
+                {yearlyMonthlyComparisonData.map((row) => {
+                  const net = row.income - row.expense;
+                  const hasData = row.income > 0 || row.expense > 0;
+                  return (
+                    <div
+                      key={`card-${row.month}`}
+                      className={`p-3 rounded-xl border transition-all ${
+                        hasData ? 'bg-indigo-50/30 border-indigo-100' : 'bg-slate-50/60 border-slate-200/60'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between mb-1.5">
+                        <span className="font-extrabold text-slate-800 text-xs bg-white px-2 py-0.5 rounded-md border border-slate-200 shadow-2xs">
+                          {row.month}
+                        </span>
+                        <span className={`text-xs font-bold ${net > 0 ? 'text-blue-600' : net < 0 ? 'text-red-500' : 'text-slate-400'}`}>
+                          {net !== 0 ? `순잔여: ${net > 0 ? '+' : ''}${net.toLocaleString()}원` : '데이터 없음'}
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2 text-[11px] pt-1 border-t border-slate-100">
+                        <div>
+                          <span className="text-slate-400 mr-1">수입:</span>
+                          <span className="text-emerald-600 font-bold font-mono">
+                            {row.income > 0 ? `+${row.income.toLocaleString()}원` : '0원'}
+                          </span>
+                        </div>
+                        <div className="text-right">
+                          <span className="text-slate-400 mr-1">지출:</span>
+                          <span className="text-red-600 font-bold font-mono">
+                            {row.expense > 0 ? `-${row.expense.toLocaleString()}원` : '0원'}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           </div>
         </div>
