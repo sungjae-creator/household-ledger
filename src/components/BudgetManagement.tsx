@@ -11,11 +11,10 @@ import {
   Save,
   CheckCircle2,
   AlertCircle,
-  TrendingDown,
-  TrendingUp,
   BarChart2,
-  ArrowRight,
   RefreshCw,
+  Coins,
+  TrendingDown,
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -75,7 +74,7 @@ async function getSafeUser(supabase: ReturnType<typeof createClient>) {
 }
 
 /**
- * 네이버 가계부 완벽 호환 '예산쓰기' & '예산반성' 컴포넌트
+ * 네이버 가계부 완벽 호환 '예산쓰기' & '예산반성' 컴포넌트 (모바일 완벽 반응형 UI 지원)
  */
 export default function BudgetManagement({
   categories,
@@ -416,37 +415,38 @@ export default function BudgetManagement({
   }, [expenseMajors, reviewYear, yearlyBudgets, yearlyTransactions]);
 
   return (
-    <div className="space-y-6">
-      {/* 1. 상단 서브 탭 (네이버 가계부 완벽 일치: 예산쓰기 vs 예산반성) */}
-      <div className="flex items-center justify-between border-b border-slate-200 pb-3">
-        <div className="flex gap-2">
+    <div className="space-y-4 sm:space-y-6">
+      {/* 1. 상단 서브 탭 & 연월 선택기 (모바일 찌그러짐 원천 차단 반응형 뷰) */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-200 pb-3 gap-3">
+        {/* 서브 탭 버튼 (whitespace-nowrap 및 shrink-0 적용) */}
+        <div className="flex items-center gap-2">
           <button
             onClick={() => setTab('BUDGET_WRITE')}
-            className={`px-4 py-2 font-bold text-sm rounded-lg transition-colors flex items-center gap-2 ${
+            className={`px-3.5 sm:px-4 py-2 font-bold text-xs sm:text-sm rounded-xl transition-colors flex items-center gap-1.5 shrink-0 whitespace-nowrap shadow-xs ${
               tab === 'BUDGET_WRITE'
-                ? 'bg-emerald-600 text-white shadow-xs'
-                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                ? 'bg-emerald-600 text-white'
+                : 'text-slate-600 hover:text-slate-900 bg-white sm:bg-transparent border sm:border-transparent border-slate-200'
             }`}
           >
-            <Calculator className="w-4 h-4" />
-            예산쓰기
+            <Calculator className="w-4 h-4 shrink-0" />
+            <span>예산쓰기</span>
           </button>
           <button
             onClick={() => setTab('BUDGET_REVIEW')}
-            className={`px-4 py-2 font-bold text-sm rounded-lg transition-colors flex items-center gap-2 ${
+            className={`px-3.5 sm:px-4 py-2 font-bold text-xs sm:text-sm rounded-xl transition-colors flex items-center gap-1.5 shrink-0 whitespace-nowrap shadow-xs ${
               tab === 'BUDGET_REVIEW'
-                ? 'bg-emerald-600 text-white shadow-xs'
-                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                ? 'bg-emerald-600 text-white'
+                : 'text-slate-600 hover:text-slate-900 bg-white sm:bg-transparent border sm:border-transparent border-slate-200'
             }`}
           >
-            <BarChart2 className="w-4 h-4" />
-            예산반성
+            <BarChart2 className="w-4 h-4 shrink-0" />
+            <span>예산반성</span>
           </button>
         </div>
 
         {/* 월/연도 이동 컨트롤러 */}
         {tab === 'BUDGET_WRITE' ? (
-          <div className="flex items-center gap-2 bg-white px-3 py-1.5 rounded-lg border border-slate-200 shadow-xs">
+          <div className="flex items-center justify-between sm:justify-end gap-2 bg-white px-3 py-1.5 rounded-xl border border-slate-200 shadow-xs self-start sm:self-auto">
             <button
               onClick={handlePrevMonth}
               className="p-1 hover:bg-slate-100 rounded text-slate-600"
@@ -454,7 +454,7 @@ export default function BudgetManagement({
             >
               <ChevronLeft className="w-4 h-4" />
             </button>
-            <span className="font-bold text-slate-800 text-sm">{currentMonth}</span>
+            <span className="font-bold text-slate-800 text-xs sm:text-sm px-1">{currentMonth}</span>
             <button
               onClick={handleNextMonth}
               className="p-1 hover:bg-slate-100 rounded text-slate-600"
@@ -464,7 +464,7 @@ export default function BudgetManagement({
             </button>
           </div>
         ) : (
-          <div className="flex items-center gap-2 bg-white px-3 py-1.5 rounded-lg border border-slate-200 shadow-xs">
+          <div className="flex items-center justify-between sm:justify-end gap-2 bg-white px-3 py-1.5 rounded-xl border border-slate-200 shadow-xs self-start sm:self-auto">
             <button
               onClick={() => setReviewYear((y) => y - 1)}
               className="p-1 hover:bg-slate-100 rounded text-slate-600"
@@ -472,7 +472,7 @@ export default function BudgetManagement({
             >
               <ChevronLeft className="w-4 h-4" />
             </button>
-            <span className="font-bold text-slate-800 text-sm">{reviewYear}년</span>
+            <span className="font-bold text-slate-800 text-xs sm:text-sm px-1">{reviewYear}년</span>
             <button
               onClick={() => setReviewYear((y) => y + 1)}
               className="p-1 hover:bg-slate-100 rounded text-slate-600"
@@ -486,14 +486,14 @@ export default function BudgetManagement({
 
       {/* 피드백 메시지 알림 바 */}
       {saveSuccess && (
-        <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 px-4 py-3 rounded-xl flex items-center gap-2 text-sm">
+        <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 px-4 py-3 rounded-xl flex items-center gap-2 text-xs sm:text-sm">
           <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
           <span>{saveSuccess}</span>
         </div>
       )}
 
       {saveError && (
-        <div className="bg-rose-50 border border-rose-200 text-rose-800 px-4 py-3 rounded-xl flex items-center gap-2 text-sm">
+        <div className="bg-rose-50 border border-rose-200 text-rose-800 px-4 py-3 rounded-xl flex items-center gap-2 text-xs sm:text-sm">
           <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
           <span>{saveError}</span>
         </div>
@@ -503,14 +503,14 @@ export default function BudgetManagement({
       {/* 2. [예산쓰기] 메인 뷰                                              */}
       {/* =================================================================== */}
       {tab === 'BUDGET_WRITE' && (
-        <div className="space-y-6">
+        <div className="space-y-4 sm:space-y-6">
           {/* 상단 컨트롤 및 가이드 문구 */}
-          <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs space-y-4">
+          <div className="bg-white p-4 sm:p-5 rounded-2xl border border-slate-200 shadow-xs space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div>
-                <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
-                  지출예산 작성
-                  <span className="text-xs font-normal text-slate-500">
+                <h3 className="text-sm sm:text-base font-bold text-slate-900 flex items-center gap-1.5 flex-wrap">
+                  <span>지출예산 작성</span>
+                  <span className="text-xs font-normal text-slate-500 whitespace-nowrap">
                     (수입 합계: +{monthlyTotalIncome.toLocaleString()}원)
                   </span>
                 </h3>
@@ -519,68 +519,150 @@ export default function BudgetManagement({
                 </p>
               </div>
 
+              {/* 액션 버튼 그룹 */}
               <div className="flex items-center gap-2">
                 <button
                   onClick={handleCopyPrevMonthBudget}
-                  className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs rounded-lg transition-colors flex items-center gap-1.5 shadow-xs"
+                  className="flex-1 sm:flex-none justify-center px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs rounded-xl transition-colors flex items-center gap-1.5 shadow-xs whitespace-nowrap"
                 >
                   <Copy className="w-3.5 h-3.5" />
-                  이전 달 예산 복사
+                  <span>이전 달 예산 복사</span>
                 </button>
                 <button
                   onClick={handleSaveBudgets}
                   disabled={saving}
-                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-400 text-white font-bold text-xs rounded-lg transition-colors flex items-center gap-1.5 shadow-xs"
+                  className="flex-1 sm:flex-none justify-center px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-400 text-white font-bold text-xs rounded-xl transition-colors flex items-center gap-1.5 shadow-xs whitespace-nowrap"
                 >
                   <Save className="w-3.5 h-3.5" />
-                  {saving ? '저장 중...' : '예산 저장'}
+                  <span>{saving ? '저장 중...' : '예산 저장'}</span>
                 </button>
               </div>
             </div>
 
-            {/* 상단 요약 카드 (총 예산 / 실제 지출 / 남은 돈) */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2">
-              <div className="bg-slate-50 border border-slate-200/80 p-3.5 rounded-xl text-center">
-                <span className="text-xs text-slate-500 font-medium">총 예산</span>
-                <p className="text-lg font-bold text-slate-900 mt-1">
+            {/* 상단 요약 카드 (모바일에서도 3열 나란히 콤팩트 표시) */}
+            <div className="grid grid-cols-3 gap-2 pt-1">
+              <div className="bg-slate-50 border border-slate-200/80 p-2.5 sm:p-3.5 rounded-xl text-center">
+                <span className="text-[11px] sm:text-xs text-slate-500 font-medium block whitespace-nowrap">
+                  총 예산
+                </span>
+                <p className="text-xs sm:text-lg font-bold text-slate-900 mt-1 truncate">
                   {totalBudgetAmount.toLocaleString()}원
                 </p>
               </div>
 
-              <div className="bg-slate-50 border border-slate-200/80 p-3.5 rounded-xl text-center">
-                <span className="text-xs text-slate-500 font-medium">실제 지출</span>
-                <p className="text-lg font-bold text-red-600 mt-1">
+              <div className="bg-slate-50 border border-slate-200/80 p-2.5 sm:p-3.5 rounded-xl text-center">
+                <span className="text-[11px] sm:text-xs text-slate-500 font-medium block whitespace-nowrap">
+                  실제 지출
+                </span>
+                <p className="text-xs sm:text-lg font-bold text-rose-600 mt-1 truncate">
                   {totalExpenseAmount.toLocaleString()}원
                 </p>
               </div>
 
               <div
-                className={`p-3.5 rounded-xl text-center border ${
+                className={`p-2.5 sm:p-3.5 rounded-xl text-center border ${
                   totalRemainingAmount < 0
                     ? 'bg-rose-50 border-rose-200 text-rose-700'
                     : 'bg-emerald-50 border-emerald-200 text-emerald-800'
                 }`}
               >
-                <span className="text-xs font-medium">
+                <span className="text-[11px] sm:text-xs font-medium block whitespace-nowrap">
                   {totalRemainingAmount < 0 ? '예산 초과' : '남은 돈'}
                 </span>
-                <p className="text-lg font-bold mt-1">
+                <p className="text-xs sm:text-lg font-bold mt-1 truncate">
                   {totalRemainingAmount.toLocaleString()}원
                 </p>
               </div>
             </div>
           </div>
 
-          {/* 대분류별 예산 입력 테이블 */}
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
+          {/* =================================================================== */}
+          {/* [모바일 전용 뷰: block sm:hidden] 스마트폰 화면에 딱 맞는 카드형 리스트 */}
+          {/* =================================================================== */}
+          <div className="block sm:hidden space-y-2.5">
+            {expenseMajors.map((major) => {
+              const budget = budgetMap[major] || 0;
+              const expense = monthlyExpenseMap[major] || 0;
+              const remaining = budget - expense;
+
+              return (
+                <div
+                  key={major}
+                  className="bg-white p-3.5 rounded-2xl border border-slate-200 shadow-xs space-y-2.5"
+                >
+                  {/* 1행: 대분류명 & 예산 입력 필드 */}
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-bold text-slate-900 text-sm whitespace-nowrap">
+                      {major}
+                    </span>
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-xs text-slate-400 font-medium">예산</span>
+                      <input
+                        type="number"
+                        value={budgetMap[major] !== undefined ? budgetMap[major] : ''}
+                        onChange={(e) => handleAmountChange(major, e.target.value)}
+                        placeholder="0"
+                        className="w-28 px-2 py-1 text-right text-sm font-semibold rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-slate-50 focus:bg-white"
+                      />
+                      <span className="text-xs text-slate-500 font-semibold">원</span>
+                    </div>
+                  </div>
+
+                  {/* 2행: 실제 지출 & 남은 돈 실시간 계산 표시 (절대 줄바꿈 안 됨) */}
+                  <div className="flex items-center justify-between text-xs pt-2 border-t border-slate-100 font-medium">
+                    <div className="text-slate-500">
+                      실제 지출: <span className="font-semibold text-slate-800">{expense.toLocaleString()}원</span>
+                    </div>
+                    <div className="whitespace-nowrap">
+                      <span className="text-slate-400 mr-1">남은 돈:</span>
+                      <span
+                        className={`font-bold ${
+                          remaining < 0
+                            ? 'text-rose-600'
+                            : remaining > 0
+                            ? 'text-emerald-700'
+                            : 'text-slate-400'
+                        }`}
+                      >
+                        {remaining.toLocaleString()}원
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+
+            {/* 모바일 하단 합계 요약 바 */}
+            <div className="bg-slate-800 text-white p-3.5 rounded-2xl shadow-sm space-y-1.5">
+              <div className="flex items-center justify-between text-xs text-slate-300">
+                <span>총 예산 합계</span>
+                <span className="font-bold text-white text-sm">{totalBudgetAmount.toLocaleString()}원</span>
+              </div>
+              <div className="flex items-center justify-between text-xs text-slate-300">
+                <span>총 실제 지출</span>
+                <span className="font-bold text-rose-400">{totalExpenseAmount.toLocaleString()}원</span>
+              </div>
+              <div className="flex items-center justify-between text-xs pt-1.5 border-t border-slate-700 font-bold">
+                <span className="text-slate-200">최종 남은 돈</span>
+                <span className={totalRemainingAmount < 0 ? 'text-rose-400' : 'text-emerald-400'}>
+                  {totalRemainingAmount.toLocaleString()}원
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* =================================================================== */}
+          {/* [PC/태블릿 전용 뷰: hidden sm:block] 넓은 화면용 시원한 4열 테이블      */}
+          {/* =================================================================== */}
+          <div className="hidden sm:block bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
             <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse">
+              <table className="w-full text-left border-collapse min-w-[500px]">
                 <thead>
                   <tr className="bg-slate-50 border-b border-slate-200 text-xs font-semibold text-slate-500">
-                    <th className="py-3 px-4">분류 (대분류)</th>
-                    <th className="py-3 px-4 text-right">예산 (원)</th>
-                    <th className="py-3 px-4 text-right">실제 지출</th>
-                    <th className="py-3 px-4 text-right">남은 돈 (예산 - 지출)</th>
+                    <th className="py-3 px-4 whitespace-nowrap min-w-[120px]">분류 (대분류)</th>
+                    <th className="py-3 px-4 text-right whitespace-nowrap min-w-[140px]">예산 (원)</th>
+                    <th className="py-3 px-4 text-right whitespace-nowrap min-w-[120px]">실제 지출</th>
+                    <th className="py-3 px-4 text-right whitespace-nowrap min-w-[140px]">남은 돈 (예산 - 지출)</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 text-sm">
@@ -591,10 +673,10 @@ export default function BudgetManagement({
 
                     return (
                       <tr key={major} className="hover:bg-slate-50/60 transition-colors">
-                        <td className="py-3 px-4 font-semibold text-slate-800">
+                        <td className="py-3 px-4 font-semibold text-slate-800 whitespace-nowrap">
                           {major}
                         </td>
-                        <td className="py-3 px-4 text-right">
+                        <td className="py-3 px-4 text-right whitespace-nowrap">
                           <input
                             type="number"
                             value={budgetMap[major] !== undefined ? budgetMap[major] : ''}
@@ -603,10 +685,10 @@ export default function BudgetManagement({
                             className="w-32 px-2.5 py-1 text-right text-sm font-semibold rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-slate-50/50 focus:bg-white transition-all"
                           />
                         </td>
-                        <td className="py-3 px-4 text-right font-medium text-slate-700">
+                        <td className="py-3 px-4 text-right font-medium text-slate-700 whitespace-nowrap">
                           {expense.toLocaleString()}원
                         </td>
-                        <td className="py-3 px-4 text-right font-bold">
+                        <td className="py-3 px-4 text-right font-bold whitespace-nowrap">
                           <span
                             className={
                               remaining < 0
@@ -625,15 +707,15 @@ export default function BudgetManagement({
                 </tbody>
                 <tfoot>
                   <tr className="bg-slate-50/80 font-bold border-t border-slate-200 text-sm">
-                    <td className="py-3.5 px-4 text-slate-900">합계</td>
-                    <td className="py-3.5 px-4 text-right text-slate-900">
+                    <td className="py-3.5 px-4 text-slate-900 whitespace-nowrap">합계</td>
+                    <td className="py-3.5 px-4 text-right text-slate-900 whitespace-nowrap">
                       {totalBudgetAmount.toLocaleString()}원
                     </td>
-                    <td className="py-3.5 px-4 text-right text-emerald-700">
+                    <td className="py-3.5 px-4 text-right text-emerald-700 whitespace-nowrap">
                       {totalExpenseAmount.toLocaleString()}원
                     </td>
                     <td
-                      className={`py-3.5 px-4 text-right ${
+                      className={`py-3.5 px-4 text-right whitespace-nowrap ${
                         totalRemainingAmount < 0 ? 'text-rose-600' : 'text-emerald-700'
                       }`}
                     >
@@ -651,38 +733,38 @@ export default function BudgetManagement({
       {/* 3. [예산반성] 메인 뷰 (1월~12월 성과 그래프 & 대분류별 매트릭스 표)  */}
       {/* =================================================================== */}
       {tab === 'BUDGET_REVIEW' && (
-        <div className="space-y-6">
+        <div className="space-y-4 sm:space-y-6">
           {/* 3-1. 1년 성과 막대그래프 (네이버 가계부 스크린샷 완벽 재현) */}
-          <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs space-y-4">
-            <div className="flex items-center justify-between">
+          <div className="bg-white p-4 sm:p-5 rounded-2xl border border-slate-200 shadow-xs space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
               <div>
-                <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
+                <h3 className="text-sm sm:text-base font-bold text-slate-900 flex items-center gap-2">
                   예산 대비 지출 (1년 성과)
                 </h3>
                 <p className="text-xs text-slate-500 mt-0.5">
                   {reviewYear}년 1월~12월의 예산 달성 성과를 시각적으로 확인합니다.
                 </p>
               </div>
-              <div className="flex items-center gap-3 text-xs font-semibold">
-                <span className="flex items-center gap-1.5 text-blue-600">
-                  <span className="w-2.5 h-2.5 rounded-sm bg-blue-500 inline-block" />
+              <div className="flex items-center gap-3 text-xs font-semibold self-start sm:self-auto">
+                <span className="flex items-center gap-1.5 text-blue-600 whitespace-nowrap">
+                  <span className="w-2.5 h-2.5 rounded-sm bg-blue-500 inline-block shrink-0" />
                   남은돈 (절약)
                 </span>
-                <span className="flex items-center gap-1.5 text-red-500">
-                  <span className="w-2.5 h-2.5 rounded-sm bg-red-500 inline-block" />
+                <span className="flex items-center gap-1.5 text-red-500 whitespace-nowrap">
+                  <span className="w-2.5 h-2.5 rounded-sm bg-red-500 inline-block shrink-0" />
                   예산초과
                 </span>
               </div>
             </div>
 
-            <div className="h-64 w-full pt-4">
+            <div className="h-56 sm:h-64 w-full pt-2">
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={yearlyReviewChartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                <BarChart data={yearlyReviewChartData} margin={{ top: 10, right: 10, left: -25, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E2E8F0" />
-                  <XAxis dataKey="month" stroke="#64748B" fontSize={11} tickLine={false} />
+                  <XAxis dataKey="month" stroke="#64748B" fontSize={10} tickLine={false} />
                   <YAxis
                     stroke="#64748B"
-                    fontSize={10}
+                    fontSize={9}
                     tickLine={false}
                     tickFormatter={(v) => `${(v / 10000).toLocaleString()}만`}
                   />
@@ -706,41 +788,44 @@ export default function BudgetManagement({
             </div>
           </div>
 
-          {/* 3-2. 대분류별 1월~12월 상세 매트릭스 표 (네이버 가계부 스크린샷 일치) */}
-          <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs space-y-4">
-            <div className="flex items-center justify-between">
+          {/* 3-2. 대분류별 1월~12월 상세 매트릭스 표 (고정 열 및 가로 스와이프 지원) */}
+          <div className="bg-white p-4 sm:p-5 rounded-2xl border border-slate-200 shadow-xs space-y-3">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
               <div>
-                <h4 className="text-sm font-bold text-slate-900">
+                <h4 className="text-xs sm:text-sm font-bold text-slate-900">
                   대분류별 월간 남은 돈 / 초과 상세 내역
                 </h4>
-                <p className="text-xs text-slate-500 mt-0.5">
-                  마이너스(-) 금액은 예산을 초과한 지출 항목입니다.
+                <p className="text-[11px] sm:text-xs text-slate-500 mt-0.5">
+                  마이너스(-) 금액은 예산을 초과한 지출 항목입니다. (좌우로 스크롤하여 12개월 확인)
                 </p>
               </div>
               {loadingReview && (
-                <span className="text-xs text-red-600 font-semibold animate-pulse flex items-center gap-1">
+                <span className="text-xs text-red-600 font-semibold animate-pulse flex items-center gap-1 self-start sm:self-auto">
                   <RefreshCw className="w-3 h-3 animate-spin" />
                   데이터 집계 중...
                 </span>
               )}
             </div>
 
-            <div className="overflow-x-auto">
-              <table className="w-full text-[11px] text-right">
+            {/* 첫 번째 열 고정(Sticky) 및 찌그러짐 방지 적용 */}
+            <div className="overflow-x-auto border border-slate-200 rounded-xl">
+              <table className="w-full text-[11px] sm:text-xs text-right border-collapse">
                 <thead className="bg-slate-50 text-slate-600 font-bold border-b border-slate-200">
                   <tr>
-                    <th className="px-3 py-2.5 text-left sticky left-0 bg-slate-50 shadow-xs">대분류</th>
+                    <th className="px-3 py-2.5 text-left sticky left-0 bg-slate-100 z-10 whitespace-nowrap min-w-[85px] sm:min-w-[100px] shadow-xs">
+                      대분류
+                    </th>
                     {Array.from({ length: 12 }, (_, i) => (
-                      <th key={i} className="px-2.5 py-2.5 min-w-[85px]">
+                      <th key={i} className="px-2.5 py-2.5 min-w-[75px] sm:min-w-[85px] whitespace-nowrap">
                         {i + 1}월
                       </th>
                     ))}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {/* 합계 행 (스크린샷처럼 최상단에 강조) */}
+                  {/* 합계 행 (최상단 강조) */}
                   <tr className="bg-slate-100/80 font-extrabold border-b border-slate-200">
-                    <td className="px-3 py-2.5 text-left text-slate-900 sticky left-0 bg-slate-100 shadow-xs">
+                    <td className="px-3 py-2.5 text-left text-slate-900 sticky left-0 bg-slate-200/90 z-10 whitespace-nowrap min-w-[85px] sm:min-w-[100px] shadow-xs">
                       합계
                     </td>
                     {Array.from({ length: 12 }, (_, i) => {
@@ -748,8 +833,8 @@ export default function BudgetManagement({
                       return (
                         <td
                           key={i}
-                          className={`px-2.5 py-2.5 ${
-                            net < 0 ? 'text-red-600 font-bold' : net > 0 ? 'text-blue-700' : 'text-slate-400'
+                          className={`px-2.5 py-2.5 whitespace-nowrap ${
+                            net < 0 ? 'text-rose-600 font-bold' : net > 0 ? 'text-blue-700' : 'text-slate-400'
                           }`}
                         >
                           {net !== 0 ? net.toLocaleString() : '-'}
@@ -760,8 +845,8 @@ export default function BudgetManagement({
 
                   {/* 각 대분류별 행 */}
                   {matrixData.rows.map((row) => (
-                    <tr key={row.major} className="hover:bg-slate-50/70">
-                      <td className="px-3 py-2 text-left font-semibold text-slate-700 sticky left-0 bg-white shadow-xs">
+                    <tr key={row.major} className="hover:bg-slate-50/70 transition-colors">
+                      <td className="px-3 py-2 text-left font-semibold text-slate-800 sticky left-0 bg-white z-10 whitespace-nowrap min-w-[85px] sm:min-w-[100px] shadow-xs border-r border-slate-100">
                         {row.major}
                       </td>
                       {Array.from({ length: 12 }, (_, i) => {
@@ -769,8 +854,8 @@ export default function BudgetManagement({
                         return (
                           <td
                             key={i}
-                            className={`px-2.5 py-2 font-mono ${
-                              val < 0 ? 'text-red-500 font-semibold' : val > 0 ? 'text-slate-700' : 'text-slate-300'
+                            className={`px-2.5 py-2 font-mono whitespace-nowrap ${
+                              val < 0 ? 'text-rose-500 font-semibold' : val > 0 ? 'text-slate-700' : 'text-slate-300'
                             }`}
                           >
                             {val !== 0 ? val.toLocaleString() : '0'}
