@@ -8,6 +8,7 @@ import Header from '@/components/Header';
 import TransactionList from '@/components/TransactionList';
 import TransactionFormModal from '@/components/TransactionFormModal';
 import AccountManagement from '@/components/AccountManagement';
+import BudgetManagement from '@/components/BudgetManagement';
 import ExcelImportModal from '@/components/ExcelImportModal';
 import AnalyticsDashboard from '@/components/AnalyticsDashboard';
 import { RefreshCw, Sparkles, AlertCircle } from 'lucide-react';
@@ -19,9 +20,9 @@ export default function Home() {
   const router = useRouter();
   const supabase = createClient();
 
-  // 사용자 정보 및 활성 탭 (transactions | accounts | dashboard | import)
+  // 사용자 정보 및 활성 탭 (transactions | accounts | dashboard | budget | import)
   const [userEmail, setUserEmail] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'transactions' | 'dashboard' | 'accounts' | 'import'>('transactions');
+  const [activeTab, setActiveTab] = useState<'transactions' | 'dashboard' | 'accounts' | 'budget' | 'import'>('transactions');
 
   // 현재 조회 기준 월 (YYYY-MM 형식)
   const [currentMonth, setCurrentMonth] = useState<string>('');
@@ -229,7 +230,7 @@ export default function Home() {
         setActiveTab={setActiveTab}
       />
 
-      {/* 2. 메인 컨텐츠 영역 (모바일 하단 탭 바 높이를 고려하여 pb-24 패딩 적용) */}
+      {/* 2. 메인 컨텐츠 영역 */}
       <main className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-4 sm:py-8 pb-24 sm:pb-8">
         {/* DB 오류 배너 */}
         {dbErrorMessage && (
@@ -312,7 +313,17 @@ export default function Home() {
               />
             )}
 
-            {/* [탭 4] 네이버 가계부 / 엑셀 가져오기 */}
+            {/* [탭 4] 네이버 가계부 스타일 '예산쓰기' & '예산반성' */}
+            {activeTab === 'budget' && (
+              <BudgetManagement
+                categories={categories}
+                currentMonth={currentMonth || new Date().toISOString().slice(0, 7)}
+                setCurrentMonth={setCurrentMonth}
+                transactions={populatedTransactions}
+              />
+            )}
+
+            {/* [탭 5] 네이버 가계부 / 엑셀 가져오기 */}
             {activeTab === 'import' && (
               <ExcelImportModal
                 categories={categories}

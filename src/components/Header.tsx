@@ -10,29 +10,22 @@ import {
   FileSpreadsheet,
   User,
   Landmark,
+  Calculator,
 } from 'lucide-react';
 
 interface HeaderProps {
   userEmail?: string | null;
-  activeTab: 'transactions' | 'dashboard' | 'accounts' | 'import';
-  setActiveTab: (tab: 'transactions' | 'dashboard' | 'accounts' | 'import') => void;
+  activeTab: 'transactions' | 'dashboard' | 'accounts' | 'budget' | 'import';
+  setActiveTab: (tab: 'transactions' | 'dashboard' | 'accounts' | 'budget' | 'import') => void;
 }
 
 /**
  * 전역 네비게이션 헤더 및 모바일 하단 탭 바 컴포넌트
- * 
- * - PC 화면: 상단 헤더에 로고 + 메뉴 탭 + 사용자 정보 + 로그아웃 표시
- * - 모바일 화면: 상단 헤더는 깔끔하게 로고와 로그아웃만 남기고,
- *   화면 맨 아래에 '모바일 하단 탭 바(Bottom Bar)'를 고정하여 글자 찌그러짐을 원천 방지하고
- *   스마트폰 금융 앱(토스/뱅크샐러드)처럼 엄지손가락으로 쉽게 누를 수 있게 제공합니다.
  */
 export default function Header({ userEmail, activeTab, setActiveTab }: HeaderProps) {
   const router = useRouter();
   const supabase = createClient();
 
-  /**
-   * 로그아웃 처리 함수
-   */
   const handleLogout = async () => {
     if (confirm('로그아웃 하시겠습니까?')) {
       await supabase.auth.signOut();
@@ -45,7 +38,8 @@ export default function Header({ userEmail, activeTab, setActiveTab }: HeaderPro
     { id: 'transactions' as const, label: '가계부 내역', icon: Receipt },
     { id: 'accounts' as const, label: '자산·계좌', icon: Landmark },
     { id: 'dashboard' as const, label: '통계 분석', icon: BarChart3 },
-    { id: 'import' as const, label: '엑셀·가져오기', icon: FileSpreadsheet },
+    { id: 'budget' as const, label: '예산 관리', icon: Calculator },
+    { id: 'import' as const, label: '엑셀', icon: FileSpreadsheet },
   ];
 
   return (
@@ -69,8 +63,8 @@ export default function Header({ userEmail, activeTab, setActiveTab }: HeaderPro
               </div>
             </div>
 
-            {/* PC 전용 중앙 탭 네비게이션 (모바일에서는 숨김) */}
-            <nav className="hidden md:flex items-center gap-1 sm:gap-2">
+            {/* PC 전용 중앙 탭 네비게이션 */}
+            <nav className="hidden md:flex items-center gap-1 sm:gap-1.5">
               {navItems.map((item) => {
                 const Icon = item.icon;
                 const isActive = activeTab === item.id;
@@ -78,7 +72,7 @@ export default function Header({ userEmail, activeTab, setActiveTab }: HeaderPro
                   <button
                     key={item.id}
                     onClick={() => setActiveTab(item.id)}
-                    className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-sm font-medium transition cursor-pointer ${
+                    className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs sm:text-sm font-medium transition cursor-pointer ${
                       isActive
                         ? 'bg-blue-50 text-blue-600 font-bold'
                         : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
@@ -96,7 +90,7 @@ export default function Header({ userEmail, activeTab, setActiveTab }: HeaderPro
               {userEmail && (
                 <div className="hidden lg:flex items-center gap-2 text-xs text-slate-600 bg-slate-100 px-3 py-1.5 rounded-lg border border-slate-200">
                   <User className="w-3.5 h-3.5 text-slate-400" />
-                  <span className="font-medium truncate max-w-[140px]">{userEmail}</span>
+                  <span className="font-medium truncate max-w-[130px]">{userEmail}</span>
                 </div>
               )}
               <button
@@ -112,8 +106,8 @@ export default function Header({ userEmail, activeTab, setActiveTab }: HeaderPro
         </div>
       </header>
 
-      {/* 2. 모바일 전용 하단 고정 탭 바 (화면 폭이 좁은 스마트폰에서만 노출) */}
-      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-50 bg-white/95 backdrop-blur-md border-t border-slate-200 shadow-lg px-2 py-1 flex items-center justify-around safe-area-bottom">
+      {/* 2. 모바일 전용 하단 탭 바 */}
+      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-50 bg-white/95 backdrop-blur-md border-t border-slate-200 shadow-lg px-1 py-1 flex items-center justify-around safe-area-bottom">
         {navItems.map((item) => {
           const Icon = item.icon;
           const isActive = activeTab === item.id;
@@ -121,7 +115,7 @@ export default function Header({ userEmail, activeTab, setActiveTab }: HeaderPro
             <button
               key={item.id}
               onClick={() => setActiveTab(item.id)}
-              className={`flex flex-col items-center justify-center py-1 px-2 rounded-xl transition cursor-pointer min-w-[64px] ${
+              className={`flex flex-col items-center justify-center py-1 px-1 rounded-xl transition cursor-pointer min-w-[54px] ${
                 isActive
                   ? 'text-blue-600 font-bold'
                   : 'text-slate-500 hover:text-slate-800'
@@ -132,9 +126,9 @@ export default function Header({ userEmail, activeTab, setActiveTab }: HeaderPro
                   isActive ? 'bg-blue-50' : 'bg-transparent'
                 }`}
               >
-                <Icon className={`w-5 h-5 ${isActive ? 'stroke-[2.5]' : 'stroke-[1.8]'}`} />
+                <Icon className={`w-4 h-4 ${isActive ? 'stroke-[2.5]' : 'stroke-[1.8]'}`} />
               </div>
-              <span className="text-[11px] mt-0.5 whitespace-nowrap tracking-tight">
+              <span className="text-[10px] mt-0.5 whitespace-nowrap tracking-tight">
                 {item.label}
               </span>
             </button>

@@ -46,7 +46,7 @@ export interface Transaction {
   to_payment_method_id?: string | null;    // (이체 시 입금계좌 / 카드결제 시 대상 카드 ID)
   description: string;      // 사용처(지출), 입금처(수입), 이체목적(이체), 카드결제내용
   memo?: string | null;     // 상세 메모
-  exclude_from_stats: boolean; // 통계 제외 여부 (카드결제는 기본 true)
+  exclude_from_stats: boolean; // 통계 제외 여부
   created_at: string;
   updated_at: string;
 
@@ -54,4 +54,15 @@ export interface Transaction {
   category?: Category | null;
   payment_method?: PaymentMethod | null;
   to_payment_method?: PaymentMethod | null;
+}
+
+// 네이버 가계부 호환 예산(Budget) 정보
+export interface Budget {
+  id: string;
+  user_id: string;
+  year_month: string;       // YYYY-MM (예: '2026-11')
+  category_major: string;   // 지출 대분류명 (예: 식비, 주거/통신)
+  amount: number;           // 설정 예산 금액
+  created_at: string;
+  updated_at: string;
 }
