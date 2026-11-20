@@ -92,7 +92,51 @@ function BudgetReviewCompactTooltip({ active, payload, label }: any) {
 }
 
 /**
- * 네이버 가계부 완벽 호환 '예산쓰기' & '예산반성' 컴포넌트 (모바일 완벽 반응형 UI 지원)
+ * [PC 전용 뷰] 예산 vs 실제 지출 비교 상세 툴팁
+ */
+function BudgetVsExpenseTooltip({ active, payload, label }: any) {
+  if (active && payload && payload.length) {
+    const budget = Number(payload.find((p: any) => p.dataKey === 'budget')?.value || 0);
+    const expense = Number(payload.find((p: any) => p.dataKey === 'expense')?.value || 0);
+    const remaining = budget - expense;
+
+    return (
+      <div className="bg-slate-900/95 text-white text-xs p-3 rounded-xl shadow-xl backdrop-blur-xs border border-slate-700 space-y-1.5 min-w-[160px]">
+        <div className="font-bold text-slate-200 border-b border-slate-700 pb-1">
+          {label}
+        </div>
+        <div className="flex items-center justify-between gap-4">
+          <span className="text-blue-300 flex items-center gap-1.5">
+            <span className="w-2 h-2 rounded-full bg-blue-400"></span>
+            설정 예산:
+          </span>
+          <span className="font-bold font-mono">{budget.toLocaleString()}원</span>
+        </div>
+        <div className="flex items-center justify-between gap-4">
+          <span className="text-rose-300 flex items-center gap-1.5">
+            <span className="w-2 h-2 rounded-full bg-rose-400"></span>
+            실제 지출:
+          </span>
+          <span className="font-bold font-mono">{expense.toLocaleString()}원</span>
+        </div>
+        <div className="flex items-center justify-between gap-4 pt-1 border-t border-slate-700/80 font-bold">
+          <span className="text-slate-400">남은 돈:</span>
+          <span className={remaining < 0 ? 'text-rose-400' : 'text-emerald-400'}>
+            {remaining.toLocaleString()}원
+          </span>
+        </div>
+      </div>
+    );
+  }
+  return null;
+}
+
+/**
+ * 네이버 가계부 완벽 호환 '예산쓰기' & '예산반성' 컴포넌트
+ *
+ * [PC 전용 기능 추가]
+ * - PC 화면(hidden sm:block): 예산 테이블 상단에 '설정 예산' vs '실제 지출' 비교 막대 그래프 노출
+ * - 모바일 화면(block sm:hidden): 모바일 환경에서는 그래프를 숨기고 기존 카드형 뷰를 그대로 유지
  */
 export default function BudgetManagement({
   categories,
@@ -153,7 +197,7 @@ export default function BudgetManagement({
   };
 
   /**
-   * 해당 월(currentMonth)의 DB 예산 불러오기
+   * 현재 월의 기저장된 예산 불러오기
    */
   const fetchMonthlyBudgets = useCallback(async () => {
     if (!currentMonth) return;
@@ -164,30 +208,31 @@ export default function BudgetManagement({
         .eq('year_month', currentMonth);
 
       if (error) {
-        console.error('예산 로딩 오류:', error);
-      } else {
-        const map: { [major: string]: number } = {};
-        (data || []).forEach((b: Budget) => {
+        console.error('예산 데이터 조회 실패:', error);
+        return;
+      }
+
+      const map: { [major: string]: number } = {};
+      if (data) {
+        data.forEach((b: Budget) => {
           map[b.category_major] = Number(b.amount);
         });
-        setBudgetMap(map);
       }
+      setBudgetMap(map);
     } catch (err) {
-      console.error('예산 데이터 조회 실패:', err);
+      console.error('예산 조회 중 예외:', err);
     }
-  }, [supabase, currentMonth]);
+  }, [currentMonth, supabase]);
 
   useEffect(() => {
     fetchMonthlyBudgets();
-    setSaveSuccess(null);
-    setSaveError(null);
   }, [fetchMonthlyBudgets]);
 
   /**
-   * 예산 금액 입력 핸들러
+   * 예산 금액 입력 변경 핸들러
    */
-  const handleAmountChange = (major: string, valStr: string) => {
-    const num = parseFloat(valStr.replace(/,/g, '')) || 0;
+  const handleAmountChange = (major: string, value: string) => {
+    const num = parseFloat(value.replace(/,/g, '')) || 0;
     setBudgetMap((prev) => ({
       ...prev,
       [major]: num,
@@ -195,59 +240,7 @@ export default function BudgetManagement({
   };
 
   /**
-   * [예산쓰기] 현재 입력된 예산 일괄 저장
-   */
-  const handleSaveBudgets = async () => {
-    setSaving(true);
-    setSaveSuccess(null);
-    setSaveError(null);
-
-    try {
-      // 1. 사용자 ID 획득: props 또는 세션 자동 갱신 헬퍼 사용
-      let effectiveUserId = propUserId;
-
-      if (!effectiveUserId) {
-        const { user, error: userErr } = await getSafeUser(supabase);
-        if (userErr || !user) {
-          throw new Error('로그인 세션이 만료되었습니다. 브라우저를 새로고침하거나 다시 로그인해 주세요.');
-        }
-        effectiveUserId = user.id;
-      }
-
-      // 2. 대분류별 예산 upsert 데이터 생성
-      const upsertData = expenseMajors.map((major) => ({
-        user_id: effectiveUserId,
-        year_month: currentMonth,
-        category_major: major,
-        amount: budgetMap[major] || 0,
-        updated_at: new Date().toISOString(),
-      }));
-
-      // 3. Supabase budgets 테이블에 일괄 등록/수정 (upsert)
-      const { error } = await supabase
-        .from('budgets')
-        .upsert(upsertData, { onConflict: 'user_id, year_month, category_major' });
-
-      if (error) {
-        // 테이블이 아직 생성되지 않은 경우 친절한 안내 제공
-        if (error.code === '42P01' || error.message?.includes('relation "budgets" does not exist')) {
-          throw new Error('Supabase에 budgets 테이블이 생성되지 않았습니다. 007_create_budgets_table.sql 마이그레이션 쿼리를 SQL Editor에서 먼저 실행해 주세요.');
-        }
-        throw error;
-      }
-
-      setSaveSuccess(`${currentMonth} 예산이 안전하게 저장되었습니다!`);
-      setTimeout(() => setSaveSuccess(null), 3000);
-    } catch (err: any) {
-      console.error('예산 저장 실패 원인:', err);
-      setSaveError(`예산 저장 실패: ${err?.message || String(err)}`);
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  /**
-   * [네이버 가계부 핵심] 이전 달 예산 그대로 복사해오기
+   * 이전 달 예산 복사하기
    */
   const handleCopyPrevMonthBudget = async () => {
     let [year, month] = currentMonth.split('-').map(Number);
@@ -258,10 +251,6 @@ export default function BudgetManagement({
     }
     const prevMonthStr = `${year}-${String(month).padStart(2, '0')}`;
 
-    if (!confirm(`${prevMonthStr}의 예산 설정을 ${currentMonth}로 복사하시겠습니까?`)) {
-      return;
-    }
-
     try {
       const { data, error } = await supabase
         .from('budgets')
@@ -269,84 +258,142 @@ export default function BudgetManagement({
         .eq('year_month', prevMonthStr);
 
       if (error) throw error;
-
       if (!data || data.length === 0) {
-        alert(`${prevMonthStr}에 등록된 예산 데이터가 없습니다.`);
+        alert(`${prevMonthStr}월에 등록된 예산 데이터가 없습니다.`);
         return;
       }
 
-      const map: { [major: string]: number } = {};
+      const newMap: { [major: string]: number } = { ...budgetMap };
       data.forEach((b: Budget) => {
-        map[b.category_major] = Number(b.amount);
+        newMap[b.category_major] = Number(b.amount);
       });
-
-      setBudgetMap((prev) => ({
-        ...prev,
-        ...map,
-      }));
-
-      alert(`${prevMonthStr} 예산을 성공적으로 불러왔습니다. 확인 후 [예산 저장]을 눌러주세요.`);
+      setBudgetMap(newMap);
+      setSaveSuccess(`${prevMonthStr}월 예산 데이터를 성공적으로 복사해 왔습니다! 저장 버튼을 눌러 적용해 주세요.`);
+      setTimeout(() => setSaveSuccess(null), 4000);
     } catch (err: any) {
-      alert(`복사 실패: ${err?.message || err}`);
+      alert(`이전 달 예산 복사 실패: ${err.message}`);
     }
   };
 
-  // =========================================================================
-  // 1. [예산쓰기] 당월 지출 집계 계산
-  // =========================================================================
+  /**
+   * 예산 일괄 저장 (Supabase upsert)
+   */
+  const handleSaveBudgets = async () => {
+    setSaving(true);
+    setSaveSuccess(null);
+    setSaveError(null);
+
+    try {
+      let activeUserId = propUserId;
+      if (!activeUserId) {
+        const { user: authUser, error: authErr } = await getSafeUser(supabase);
+        if (authErr || !authUser) {
+          throw new Error('로그인 세션이 만료되었습니다. 다시 로그인해 주세요.');
+        }
+        activeUserId = authUser.id;
+      }
+
+      const rowsToUpsert = expenseMajors.map((major) => ({
+        user_id: activeUserId,
+        year_month: currentMonth,
+        category_major: major,
+        amount: budgetMap[major] || 0,
+        updated_at: new Date().toISOString(),
+      }));
+
+      const { error: upsertErr } = await supabase
+        .from('budgets')
+        .upsert(rowsToUpsert, { onConflict: 'user_id,year_month,category_major' });
+
+      if (upsertErr) throw upsertErr;
+
+      setSaveSuccess(`${currentMonth}월 예산이 안전하게 저장되었습니다.`);
+      setTimeout(() => setSaveSuccess(null), 3000);
+    } catch (err: any) {
+      setSaveError(`예산 저장 실패: ${err.message}`);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // 당월 카테고리 대분류별 실제 지출액 맵 계산
   const monthlyExpenseMap = useMemo(() => {
     const map: { [major: string]: number } = {};
     transactions
       .filter((t) => t.type === 'EXPENSE' && !t.exclude_from_stats)
       .forEach((t) => {
-        const major = t.category ? t.category.major_name : '기타';
+        const major = t.category?.major_name || '기타';
         map[major] = (map[major] || 0) + Number(t.amount);
       });
     return map;
   }, [transactions]);
 
-  // 당월 수입 합계
+  // 당월 총 수입
   const monthlyTotalIncome = useMemo(() => {
     return transactions
       .filter((t) => t.type === 'INCOME' && !t.exclude_from_stats)
       .reduce((sum, t) => sum + Number(t.amount), 0);
   }, [transactions]);
 
-  // 당월 총 예산, 총 지출, 총 남은 돈
+  // 당월 총 예산 합계
   const totalBudgetAmount = useMemo(() => {
-    return expenseMajors.reduce((sum, m) => sum + (budgetMap[m] || 0), 0);
+    return expenseMajors.reduce((sum, major) => sum + (budgetMap[major] || 0), 0);
   }, [expenseMajors, budgetMap]);
 
+  // 당월 총 실제 지출 합계
   const totalExpenseAmount = useMemo(() => {
-    return Object.values(monthlyExpenseMap).reduce((sum, val) => sum + val, 0);
-  }, [monthlyExpenseMap]);
+    return expenseMajors.reduce((sum, major) => sum + (monthlyExpenseMap[major] || 0), 0);
+  }, [expenseMajors, monthlyExpenseMap]);
 
+  // 남은 돈 (총 예산 - 총 지출)
   const totalRemainingAmount = totalBudgetAmount - totalExpenseAmount;
 
-  // =========================================================================
-  // 2. [예산반성] 1년치 데이터 조회 및 매트릭스 계산
-  // =========================================================================
+  // [PC 전용 차트 데이터] 대분류별 예산 vs 실제 지출 비교 데이터
+  const budgetVsExpenseChartData = useMemo(() => {
+    return expenseMajors.map((major) => {
+      const budget = budgetMap[major] || 0;
+      const expense = monthlyExpenseMap[major] || 0;
+      const remaining = budget - expense;
+      return {
+        major,
+        budget,
+        expense,
+        remaining,
+      };
+    });
+  }, [expenseMajors, budgetMap, monthlyExpenseMap]);
+
+  // ===================================================================
+  // [예산반성] 1년치 데이터 조회 및 매트릭스 계산
+  // ===================================================================
   const fetchYearlyReviewData = useCallback(async (year: number) => {
     setLoadingReview(true);
     try {
-      const startDate = `${year}-01-01`;
-      const endDate = `${year + 1}-01-01`;
+      const startYearStr = `${year}-01`;
+      const endYearStr = `${year}-12`;
 
-      // 1년치 거래내역
-      const { data: txData } = await supabase
+      // 1년치 거래내역 조회
+      const { data: txData, error: txErr } = await supabase
         .from('transactions')
-        .select('*, category:categories(*)')
-        .gte('transaction_date', startDate)
-        .lt('transaction_date', endDate);
+        .select(`
+          *,
+          category:categories(*)
+        `)
+        .gte('transaction_date', `${startYearStr}-01`)
+        .lte('transaction_date', `${endYearStr}-31`)
+        .eq('exclude_from_stats', false);
 
-      // 1년치 예산
-      const { data: bgData } = await supabase
+      if (txErr) console.error('예산반성 거래내역 에러:', txErr);
+      setYearlyTransactions((txData || []) as Transaction[]);
+
+      // 1년치 예산 데이터 조회
+      const { data: bgData, error: bgErr } = await supabase
         .from('budgets')
         .select('*')
-        .gte('year_month', `${year}-01`)
-        .lte('year_month', `${year}-12`);
+        .gte('year_month', startYearStr)
+        .lte('year_month', endYearStr);
 
-      setYearlyTransactions((txData || []) as Transaction[]);
+      if (bgErr) console.error('예산반성 예산데이터 에러:', bgErr);
       setYearlyBudgets((bgData || []) as Budget[]);
     } catch (err) {
       console.error('예산반성 로딩 실패:', err);
@@ -434,13 +481,13 @@ export default function BudgetManagement({
 
   return (
     <div className="space-y-4 sm:space-y-6">
-      {/* 1. 상단 서브 탭 & 연월 선택기 (모바일 찌그러짐 원천 차단 반응형 뷰) */}
+      {/* 1. 상단 서브 탭 & 연월 선택기 */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-200 pb-3 gap-3">
-        {/* 서브 탭 버튼 (whitespace-nowrap 및 shrink-0 적용) */}
+        {/* 서브 탭 버튼 */}
         <div className="flex items-center gap-2">
           <button
             onClick={() => setTab('BUDGET_WRITE')}
-            className={`px-3.5 sm:px-4 py-2 font-bold text-xs sm:text-sm rounded-xl transition-colors flex items-center gap-1.5 shrink-0 whitespace-nowrap shadow-xs ${
+            className={`px-3.5 sm:px-4 py-2 font-bold text-xs sm:text-sm rounded-xl transition-colors flex items-center gap-1.5 shrink-0 whitespace-nowrap shadow-xs cursor-pointer ${
               tab === 'BUDGET_WRITE'
                 ? 'bg-emerald-600 text-white'
                 : 'text-slate-600 hover:text-slate-900 bg-white sm:bg-transparent border sm:border-transparent border-slate-200'
@@ -451,7 +498,7 @@ export default function BudgetManagement({
           </button>
           <button
             onClick={() => setTab('BUDGET_REVIEW')}
-            className={`px-3.5 sm:px-4 py-2 font-bold text-xs sm:text-sm rounded-xl transition-colors flex items-center gap-1.5 shrink-0 whitespace-nowrap shadow-xs ${
+            className={`px-3.5 sm:px-4 py-2 font-bold text-xs sm:text-sm rounded-xl transition-colors flex items-center gap-1.5 shrink-0 whitespace-nowrap shadow-xs cursor-pointer ${
               tab === 'BUDGET_REVIEW'
                 ? 'bg-emerald-600 text-white'
                 : 'text-slate-600 hover:text-slate-900 bg-white sm:bg-transparent border sm:border-transparent border-slate-200'
@@ -467,7 +514,7 @@ export default function BudgetManagement({
           <div className="flex items-center justify-between sm:justify-end gap-2 bg-white px-3 py-1.5 rounded-xl border border-slate-200 shadow-xs self-start sm:self-auto">
             <button
               onClick={handlePrevMonth}
-              className="p-1 hover:bg-slate-100 rounded text-slate-600"
+              className="p-1 hover:bg-slate-100 rounded text-slate-600 cursor-pointer"
               title="이전 달"
             >
               <ChevronLeft className="w-4 h-4" />
@@ -475,7 +522,7 @@ export default function BudgetManagement({
             <span className="font-bold text-slate-800 text-xs sm:text-sm px-1">{currentMonth}</span>
             <button
               onClick={handleNextMonth}
-              className="p-1 hover:bg-slate-100 rounded text-slate-600"
+              className="p-1 hover:bg-slate-100 rounded text-slate-600 cursor-pointer"
               title="다음 달"
             >
               <ChevronRight className="w-4 h-4" />
@@ -485,7 +532,7 @@ export default function BudgetManagement({
           <div className="flex items-center justify-between sm:justify-end gap-2 bg-white px-3 py-1.5 rounded-xl border border-slate-200 shadow-xs self-start sm:self-auto">
             <button
               onClick={() => setReviewYear((y) => y - 1)}
-              className="p-1 hover:bg-slate-100 rounded text-slate-600"
+              className="p-1 hover:bg-slate-100 rounded text-slate-600 cursor-pointer"
               title="이전 연도"
             >
               <ChevronLeft className="w-4 h-4" />
@@ -493,7 +540,7 @@ export default function BudgetManagement({
             <span className="font-bold text-slate-800 text-xs sm:text-sm px-1">{reviewYear}년</span>
             <button
               onClick={() => setReviewYear((y) => y + 1)}
-              className="p-1 hover:bg-slate-100 rounded text-slate-600"
+              className="p-1 hover:bg-slate-100 rounded text-slate-600 cursor-pointer"
               title="다음 연도"
             >
               <ChevronRight className="w-4 h-4" />
@@ -541,7 +588,7 @@ export default function BudgetManagement({
               <div className="flex items-center gap-2">
                 <button
                   onClick={handleCopyPrevMonthBudget}
-                  className="flex-1 sm:flex-none justify-center px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs rounded-xl transition-colors flex items-center gap-1.5 shadow-xs whitespace-nowrap"
+                  className="flex-1 sm:flex-none justify-center px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs rounded-xl transition-colors flex items-center gap-1.5 shadow-xs whitespace-nowrap cursor-pointer"
                 >
                   <Copy className="w-3.5 h-3.5" />
                   <span>이전 달 예산 복사</span>
@@ -549,7 +596,7 @@ export default function BudgetManagement({
                 <button
                   onClick={handleSaveBudgets}
                   disabled={saving}
-                  className="flex-1 sm:flex-none justify-center px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-400 text-white font-bold text-xs rounded-xl transition-colors flex items-center gap-1.5 shadow-xs whitespace-nowrap"
+                  className="flex-1 sm:flex-none justify-center px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-400 text-white font-bold text-xs rounded-xl transition-colors flex items-center gap-1.5 shadow-xs whitespace-nowrap cursor-pointer"
                 >
                   <Save className="w-3.5 h-3.5" />
                   <span>{saving ? '저장 중...' : '예산 저장'}</span>
@@ -557,7 +604,7 @@ export default function BudgetManagement({
               </div>
             </div>
 
-            {/* 상단 요약 카드 (모바일에서도 3열 나란히 콤팩트 표시) */}
+            {/* 상단 요약 카드 */}
             <div className="grid grid-cols-3 gap-2 pt-1">
               <div className="bg-slate-50 border border-slate-200/80 p-2.5 sm:p-3.5 rounded-xl text-center">
                 <span className="text-[11px] sm:text-xs text-slate-500 font-medium block whitespace-nowrap">
@@ -596,6 +643,7 @@ export default function BudgetManagement({
 
           {/* =================================================================== */}
           {/* [모바일 전용 뷰: block sm:hidden] 스마트폰 화면에 딱 맞는 카드형 리스트 */}
+          {/* (사용자 요청: 모바일에서는 그래프를 보여주지 않고 기존 카드형 뷰 유지) */}
           {/* =================================================================== */}
           <div className="block sm:hidden space-y-2.5">
             {expenseMajors.map((major) => {
@@ -626,7 +674,7 @@ export default function BudgetManagement({
                     </div>
                   </div>
 
-                  {/* 2행: 실제 지출 & 남은 돈 실시간 계산 표시 (절대 줄바꿈 안 됨) */}
+                  {/* 2행: 실제 지출 & 남은 돈 실시간 계산 표시 */}
                   <div className="flex items-center justify-between text-xs pt-2 border-t border-slate-100 font-medium">
                     <div className="text-slate-500">
                       실제 지출: <span className="font-semibold text-slate-800">{expense.toLocaleString()}원</span>
@@ -670,7 +718,80 @@ export default function BudgetManagement({
           </div>
 
           {/* =================================================================== */}
-          {/* [PC/태블릿 전용 뷰: hidden sm:block] 넓은 화면용 시원한 4열 테이블      */}
+          {/* [PC 전용 뷰 1: hidden sm:block] 예산 vs 실제 지출 비교 막대 그래프       */}
+          {/* =================================================================== */}
+          <div className="hidden sm:block bg-white rounded-2xl p-5 sm:p-6 border border-slate-200 shadow-xs">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h4 className="text-sm font-bold text-slate-800 flex items-center gap-2">
+                  <BarChart2 className="w-4 h-4 text-emerald-600" />
+                  <span>분류별 예산 vs 실제 지출 비교 그래프</span>
+                </h4>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  각 대분류별로 설정한 목표 예산과 실제 지출액을 한눈에 대조합니다.
+                </p>
+              </div>
+
+              {/* 범례 표시 */}
+              <div className="flex items-center gap-4 text-xs font-semibold">
+                <span className="flex items-center gap-1.5">
+                  <span className="w-3 h-3 rounded-xs bg-blue-500 inline-block shrink-0" />
+                  <span className="text-slate-600">설정 예산</span>
+                </span>
+                <span className="flex items-center gap-1.5">
+                  <span className="w-3 h-3 rounded-xs bg-rose-500 inline-block shrink-0" />
+                  <span className="text-slate-600">실제 지출</span>
+                </span>
+              </div>
+            </div>
+
+            {/* 막대 그래프 영역 */}
+            <div className="h-64 sm:h-72 w-full pt-2">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart
+                  data={budgetVsExpenseChartData}
+                  margin={{ top: 10, right: 10, left: -15, bottom: 25 }}
+                >
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#F1F5F9" />
+                  <XAxis
+                    dataKey="major"
+                    tickLine={false}
+                    axisLine={{ stroke: '#E2E8F0' }}
+                    tick={{ fontSize: 11, fill: '#64748B' }}
+                    interval={0}
+                    angle={-20}
+                    textAnchor="end"
+                  />
+                  <YAxis
+                    tickLine={false}
+                    axisLine={false}
+                    tick={{ fontSize: 10, fill: '#94A3B8' }}
+                    tickFormatter={(val) =>
+                      val >= 10000 ? `${Math.round(val / 10000)}만` : val.toLocaleString()
+                    }
+                  />
+                  <Tooltip content={<BudgetVsExpenseTooltip />} />
+                  <Bar
+                    dataKey="budget"
+                    name="설정 예산"
+                    fill="#3B82F6"
+                    radius={[4, 4, 0, 0]}
+                    maxBarSize={28}
+                  />
+                  <Bar
+                    dataKey="expense"
+                    name="실제 지출"
+                    fill="#F43F5E"
+                    radius={[4, 4, 0, 0]}
+                    maxBarSize={28}
+                  />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+
+          {/* =================================================================== */}
+          {/* [PC 전용 뷰 2: hidden sm:block] 넓은 화면용 시원한 4열 테이블           */}
           {/* =================================================================== */}
           <div className="hidden sm:block bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
             <div className="overflow-x-auto">
@@ -786,7 +907,7 @@ export default function BudgetManagement({
                     tickLine={false}
                     tickFormatter={(v) => `${(v / 10000).toLocaleString()}만`}
                   />
-                  {/* [요청 반영] 초슬림 미니멀 툴팁 적용 */}
+                  {/* 초슬림 미니멀 툴팁 적용 */}
                   <Tooltip content={<BudgetReviewCompactTooltip />} />
                   <ReferenceLine y={0} stroke="#94A3B8" />
                   <Bar dataKey="net" radius={[4, 4, 0, 0]}>
@@ -802,7 +923,7 @@ export default function BudgetManagement({
             </div>
           </div>
 
-          {/* 3-2. 대분류별 1월~12월 상세 매트릭스 표 (고정 열 및 가로 스와이프 지원) */}
+          {/* 3-2. 대분류별 1월~12월 상세 매트릭스 표 */}
           <div className="bg-white p-4 sm:p-5 rounded-2xl border border-slate-200 shadow-xs space-y-3">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
               <div>
