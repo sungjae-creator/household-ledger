@@ -38,7 +38,7 @@ type HistoryPeriod = '1M' | '3M' | '6M' | '1Y' | 'ALL';
  * 1. 보유 자산: 실제 잔액을 보유한 은행 계좌(BANK)와 현금(CASH)
  * 2. 결제 수단: 지출을 발생시키는 신용/체크카드(CARD)
  * 3. [내역] 기능: 각 은행 계좌 및 현금의 잔액 증감(플러스/마이너스) 거래 내역 상세 조회 모달
- * 4. [기간 필터]: 데이터 증가 시 성능 저하 방지를 위한 기간 필터(1개월/3개월/6개월/1년/전체) 적용
+ * 4. [기간 필터]: 데이터 증가 시 성능 저하 방지를 위한 기간 필터(1개월[기본]/3개월/6개월/1년/전체) 적용
  */
 export default function AccountManagement({
   paymentMethods,
@@ -60,11 +60,11 @@ export default function AccountManagement({
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
 
-  // 계좌별 잔액 증감 내역 모달 상태
+  // 계좌별 잔액 증감 내역 모달 상태 (기본 기간: 최근 1개월)
   const [selectedAccountForHistory, setSelectedAccountForHistory] = useState<PaymentMethod | null>(null);
   const [historyTransactions, setHistoryTransactions] = useState<any[]>([]);
   const [loadingHistory, setLoadingHistory] = useState<boolean>(false);
-  const [historyPeriod, setHistoryPeriod] = useState<HistoryPeriod>('3M'); // 기본 3개월
+  const [historyPeriod, setHistoryPeriod] = useState<HistoryPeriod>('1M'); // 기본 1개월
   const [historyFilter, setHistoryFilter] = useState<'ALL' | 'INCOME' | 'EXPENSE'>('ALL');
   const [historySearch, setHistorySearch] = useState<string>('');
 
@@ -162,14 +162,14 @@ export default function AccountManagement({
   };
 
   /**
-   * 특정 자산(계좌/현금)의 증감 내역 모달 열기 (기본 최근 3개월)
+   * 특정 자산(계좌/현금)의 증감 내역 모달 열기 (기본 최근 1개월)
    */
   const handleOpenHistory = async (pm: PaymentMethod) => {
     setSelectedAccountForHistory(pm);
-    setHistoryPeriod('3M');
+    setHistoryPeriod('1M'); // 기본 1개월
     setHistoryFilter('ALL');
     setHistorySearch('');
-    await fetchAccountHistory(pm, '3M');
+    await fetchAccountHistory(pm, '1M');
   };
 
   /**
@@ -775,7 +775,7 @@ export default function AccountManagement({
               </div>
             </div>
 
-            {/* 1) 기간 선택 탭 바 (과부하 방지 최적화) */}
+            {/* 1) 기간 선택 탭 바 (최근 1개월 기본값) */}
             <div className="px-5 sm:px-6 py-2.5 bg-slate-100/70 border-b border-slate-200 flex items-center justify-between gap-2 overflow-x-auto">
               <div className="flex items-center gap-1.5 text-xs shrink-0">
                 <Clock className="w-3.5 h-3.5 text-slate-500 mr-1" />
@@ -789,7 +789,7 @@ export default function AccountManagement({
                       : 'bg-white text-slate-600 hover:bg-slate-200 border border-slate-200'
                   }`}
                 >
-                  최근 1개월
+                  최근 1개월 (기본)
                 </button>
                 <button
                   onClick={() => handlePeriodChange('3M')}
@@ -799,7 +799,7 @@ export default function AccountManagement({
                       : 'bg-white text-slate-600 hover:bg-slate-200 border border-slate-200'
                   }`}
                 >
-                  최근 3개월 (권장)
+                  최근 3개월
                 </button>
                 <button
                   onClick={() => handlePeriodChange('6M')}
@@ -898,7 +898,7 @@ export default function AccountManagement({
                   <AlertCircle className="w-10 h-10 text-slate-300 mx-auto mb-2" />
                   <p className="text-sm font-bold text-slate-600">선택한 기간에 등록된 내역이 없습니다</p>
                   <p className="text-xs text-slate-400 mt-1">
-                    상단의 기간 버튼(최근 6개월, 1년, 전체)을 눌러 더 넓은 기간의 내역을 확인해 보세요.
+                    상단의 기간 버튼(최근 3개월, 6개월, 1년, 전체)을 눌러 더 넓은 기간의 내역을 확인해 보세요.
                   </p>
                 </div>
               ) : (
