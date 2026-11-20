@@ -21,12 +21,15 @@ import {
   Search,
   Filter,
   Calendar,
+  Clock,
 } from 'lucide-react';
 
 interface AccountManagementProps {
   paymentMethods: PaymentMethod[];
   onRefresh: () => void;
 }
+
+type HistoryPeriod = '1M' | '3M' | '6M' | '1Y' | 'ALL';
 
 /**
  * 자산(은행 계좌 & 현금) 및 결제 카드 분리 관리 컴포넌트
@@ -35,6 +38,7 @@ interface AccountManagementProps {
  * 1. 보유 자산: 실제 잔액을 보유한 은행 계좌(BANK)와 현금(CASH)
  * 2. 결제 수단: 지출을 발생시키는 신용/체크카드(CARD)
  * 3. [내역] 기능: 각 은행 계좌 및 현금의 잔액 증감(플러스/마이너스) 거래 내역 상세 조회 모달
+ * 4. [기간 필터]: 데이터 증가 시 성능 저하 방지를 위한 기간 필터(1개월/3개월/6개월/1년/전체) 적용
  */
 export default function AccountManagement({
   paymentMethods,
@@ -60,6 +64,7 @@ export default function AccountManagement({
   const [selectedAccountForHistory, setSelectedAccountForHistory] = useState<PaymentMethod | null>(null);
   const [historyTransactions, setHistoryTransactions] = useState<any[]>([]);
   const [loadingHistory, setLoadingHistory] = useState<boolean>(false);
+  const [historyPeriod, setHistoryPeriod] = useState<HistoryPeriod>('3M'); // 기본 3개월
   const [historyFilter, setHistoryFilter] = useState<'ALL' | 'INCOME' | 'EXPENSE'>('ALL');
   const [historySearch, setHistorySearch] = useState<string>('');
 
@@ -106,17 +111,32 @@ export default function AccountManagement({
   };
 
   /**
-   * 특정 자산(계좌/현금)의 증감 내역 모달 열기
+   * 기간에 따른 시작일(YYYY-MM-DD) 계산 헬퍼
    */
-  const handleOpenHistory = async (pm: PaymentMethod) => {
-    setSelectedAccountForHistory(pm);
-    setLoadingHistory(true);
-    setHistoryFilter('ALL');
-    setHistorySearch('');
+  const getStartDateByPeriod = (period: HistoryPeriod): string | null => {
+    if (period === 'ALL') return null;
+    const date = new Date();
+    if (period === '1M') {
+      date.setMonth(date.getMonth() - 1);
+    } else if (period === '3M') {
+      date.setMonth(date.getMonth() - 3);
+    } else if (period === '6M') {
+      date.setMonth(date.getMonth() - 6);
+    } else if (period === '1Y') {
+      date.setFullYear(date.getFullYear() - 1);
+    }
+    return date.toISOString().split('T')[0];
+  };
 
+  /**
+   * 선택된 자산 및 기간에 맞게 내역 데이터를 Supabase에서 가져오는 함수
+   */
+  const fetchAccountHistory = async (pm: PaymentMethod, period: HistoryPeriod) => {
+    setLoadingHistory(true);
     try {
-      // 해당 결제수단이 출금(payment_method_id) 또는 입금(to_payment_method_id)으로 사용된 모든 내역 조회
-      const { data, error: histErr } = await supabase
+      const startDate = getStartDateByPeriod(period);
+
+      let query = supabase
         .from('transactions')
         .select(`
           *,
@@ -126,6 +146,12 @@ export default function AccountManagement({
         .order('transaction_date', { ascending: false })
         .order('created_at', { ascending: false });
 
+      // 기간 필터 적용 (데이터 과부하 방지)
+      if (startDate) {
+        query = query.gte('transaction_date', startDate);
+      }
+
+      const { data, error: histErr } = await query;
       if (histErr) throw histErr;
       setHistoryTransactions(data || []);
     } catch (err: any) {
@@ -133,6 +159,26 @@ export default function AccountManagement({
     } finally {
       setLoadingHistory(false);
     }
+  };
+
+  /**
+   * 특정 자산(계좌/현금)의 증감 내역 모달 열기 (기본 최근 3개월)
+   */
+  const handleOpenHistory = async (pm: PaymentMethod) => {
+    setSelectedAccountForHistory(pm);
+    setHistoryPeriod('3M');
+    setHistoryFilter('ALL');
+    setHistorySearch('');
+    await fetchAccountHistory(pm, '3M');
+  };
+
+  /**
+   * 모달 내에서 기간 필터 변경 시 호출
+   */
+  const handlePeriodChange = async (newPeriod: HistoryPeriod) => {
+    if (!selectedAccountForHistory) return;
+    setHistoryPeriod(newPeriod);
+    await fetchAccountHistory(selectedAccountForHistory, newPeriod);
   };
 
   /**
@@ -288,7 +334,7 @@ export default function AccountManagement({
     return true;
   });
 
-  // 선택된 계좌의 총 입금액 / 출금액 합계 계산
+  // 선택된 기간 내의 총 입금액 / 출금액 합계 계산
   const totalInflow = processedHistory
     .filter((i) => i.delta > 0)
     .reduce((sum, i) => sum + i.delta, 0);
@@ -705,19 +751,19 @@ export default function AccountManagement({
             {/* 증감 요약 통계 배너 */}
             <div className="px-5 sm:px-6 py-3.5 bg-slate-50/40 border-b border-slate-100 grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs">
               <div className="p-2.5 bg-emerald-50/70 border border-emerald-100 rounded-xl">
-                <span className="text-emerald-700 font-semibold block mb-0.5">총 입금 (+)</span>
+                <span className="text-emerald-700 font-semibold block mb-0.5">선택 기간 총 입금 (+)</span>
                 <span className="text-sm sm:text-base font-extrabold text-emerald-700">
                   +{totalInflow.toLocaleString()}원
                 </span>
               </div>
               <div className="p-2.5 bg-red-50/70 border border-red-100 rounded-xl">
-                <span className="text-red-700 font-semibold block mb-0.5">총 출금 (-)</span>
+                <span className="text-red-700 font-semibold block mb-0.5">선택 기간 총 출금 (-)</span>
                 <span className="text-sm sm:text-base font-extrabold text-red-700">
                   -{totalOutflow.toLocaleString()}원
                 </span>
               </div>
               <div className="col-span-2 sm:col-span-1 p-2.5 bg-blue-50/70 border border-blue-100 rounded-xl flex sm:flex-col justify-between sm:justify-start items-center sm:items-start">
-                <span className="text-blue-700 font-semibold block mb-0.5">순 증감액</span>
+                <span className="text-blue-700 font-semibold block mb-0.5">기간 순 증감액</span>
                 <span
                   className={`text-sm sm:text-base font-extrabold ${
                     totalInflow - totalOutflow >= 0 ? 'text-blue-700' : 'text-red-600'
@@ -729,14 +775,79 @@ export default function AccountManagement({
               </div>
             </div>
 
-            {/* 필터 및 검색창 */}
-            <div className="px-5 sm:px-6 py-3 border-b border-slate-100 flex flex-col sm:flex-row items-center justify-between gap-2">
+            {/* 1) 기간 선택 탭 바 (과부하 방지 최적화) */}
+            <div className="px-5 sm:px-6 py-2.5 bg-slate-100/70 border-b border-slate-200 flex items-center justify-between gap-2 overflow-x-auto">
+              <div className="flex items-center gap-1.5 text-xs shrink-0">
+                <Clock className="w-3.5 h-3.5 text-slate-500 mr-1" />
+                <span className="font-bold text-slate-700 mr-1">조회 기간:</span>
+
+                <button
+                  onClick={() => handlePeriodChange('1M')}
+                  className={`px-2.5 py-1 rounded-lg font-bold transition cursor-pointer text-xs ${
+                    historyPeriod === '1M'
+                      ? 'bg-blue-600 text-white shadow-xs'
+                      : 'bg-white text-slate-600 hover:bg-slate-200 border border-slate-200'
+                  }`}
+                >
+                  최근 1개월
+                </button>
+                <button
+                  onClick={() => handlePeriodChange('3M')}
+                  className={`px-2.5 py-1 rounded-lg font-bold transition cursor-pointer text-xs ${
+                    historyPeriod === '3M'
+                      ? 'bg-blue-600 text-white shadow-xs'
+                      : 'bg-white text-slate-600 hover:bg-slate-200 border border-slate-200'
+                  }`}
+                >
+                  최근 3개월 (권장)
+                </button>
+                <button
+                  onClick={() => handlePeriodChange('6M')}
+                  className={`px-2.5 py-1 rounded-lg font-bold transition cursor-pointer text-xs ${
+                    historyPeriod === '6M'
+                      ? 'bg-blue-600 text-white shadow-xs'
+                      : 'bg-white text-slate-600 hover:bg-slate-200 border border-slate-200'
+                  }`}
+                >
+                  최근 6개월
+                </button>
+                <button
+                  onClick={() => handlePeriodChange('1Y')}
+                  className={`px-2.5 py-1 rounded-lg font-bold transition cursor-pointer text-xs ${
+                    historyPeriod === '1Y'
+                      ? 'bg-blue-600 text-white shadow-xs'
+                      : 'bg-white text-slate-600 hover:bg-slate-200 border border-slate-200'
+                  }`}
+                >
+                  최근 1년
+                </button>
+                <button
+                  onClick={() => handlePeriodChange('ALL')}
+                  className={`px-2.5 py-1 rounded-lg font-bold transition cursor-pointer text-xs ${
+                    historyPeriod === 'ALL'
+                      ? 'bg-blue-600 text-white shadow-xs'
+                      : 'bg-white text-slate-600 hover:bg-slate-200 border border-slate-200'
+                  }`}
+                >
+                  전체
+                </button>
+              </div>
+
+              {historyPeriod !== 'ALL' && (
+                <span className="text-[11px] text-slate-500 font-mono hidden md:inline shrink-0">
+                  {getStartDateByPeriod(historyPeriod)} ~ 오늘
+                </span>
+              )}
+            </div>
+
+            {/* 2) 입/출금 구분 필터 및 검색창 */}
+            <div className="px-5 sm:px-6 py-2.5 border-b border-slate-100 flex flex-col sm:flex-row items-center justify-between gap-2">
               <div className="flex items-center gap-1.5 w-full sm:w-auto">
                 <button
                   onClick={() => setHistoryFilter('ALL')}
                   className={`px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
                     historyFilter === 'ALL'
-                      ? 'bg-blue-600 text-white shadow-xs'
+                      ? 'bg-slate-800 text-white shadow-xs'
                       : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                   }`}
                 >
@@ -780,14 +891,14 @@ export default function AccountManagement({
             <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-2.5">
               {loadingHistory ? (
                 <div className="py-16 text-center text-slate-400 text-xs">
-                  증감 내역을 불러오는 중입니다...
+                  해당 기간의 증감 내역을 불러오는 중입니다...
                 </div>
               ) : filteredHistory.length === 0 ? (
                 <div className="py-16 text-center">
                   <AlertCircle className="w-10 h-10 text-slate-300 mx-auto mb-2" />
-                  <p className="text-sm font-bold text-slate-600">조회된 증감 내역이 없습니다</p>
+                  <p className="text-sm font-bold text-slate-600">선택한 기간에 등록된 내역이 없습니다</p>
                   <p className="text-xs text-slate-400 mt-1">
-                    이 계좌를 출금 또는 입금 수단으로 지정한 거래 내역이 등록되면 여기에 시간순으로 표시됩니다.
+                    상단의 기간 버튼(최근 6개월, 1년, 전체)을 눌러 더 넓은 기간의 내역을 확인해 보세요.
                   </p>
                 </div>
               ) : (
