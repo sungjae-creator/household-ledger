@@ -11,12 +11,13 @@ import {
   User,
   Landmark,
   Calculator,
+  Sparkles,
 } from 'lucide-react';
 
 interface HeaderProps {
   userEmail?: string | null;
-  activeTab: 'transactions' | 'dashboard' | 'accounts' | 'budget' | 'import';
-  setActiveTab: (tab: 'transactions' | 'dashboard' | 'accounts' | 'budget' | 'import') => void;
+  activeTab: 'transactions' | 'dashboard' | 'accounts' | 'budget' | 'import' | 'ai-report';
+  setActiveTab: (tab: 'transactions' | 'dashboard' | 'accounts' | 'budget' | 'import' | 'ai-report') => void;
 }
 
 /**
@@ -38,6 +39,7 @@ export default function Header({ userEmail, activeTab, setActiveTab }: HeaderPro
     { id: 'transactions' as const, label: '가계부 내역', icon: Receipt },
     { id: 'accounts' as const, label: '자산·계좌', icon: Landmark },
     { id: 'dashboard' as const, label: '통계 분석', icon: BarChart3 },
+    { id: 'ai-report' as const, label: 'AI 리포트', icon: Sparkles },
     { id: 'budget' as const, label: '예산 관리', icon: Calculator },
     { id: 'import' as const, label: '엑셀', icon: FileSpreadsheet },
   ];
@@ -68,17 +70,22 @@ export default function Header({ userEmail, activeTab, setActiveTab }: HeaderPro
               {navItems.map((item) => {
                 const Icon = item.icon;
                 const isActive = activeTab === item.id;
+                const isAI = item.id === 'ai-report';
                 return (
                   <button
                     key={item.id}
                     onClick={() => setActiveTab(item.id)}
                     className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs sm:text-sm font-medium transition cursor-pointer ${
                       isActive
-                        ? 'bg-blue-50 text-blue-600 font-bold'
+                        ? isAI
+                          ? 'bg-indigo-50 text-indigo-700 font-bold border border-indigo-200'
+                          : 'bg-blue-50 text-blue-600 font-bold'
+                        : isAI
+                        ? 'text-indigo-600 hover:bg-indigo-50/50'
                         : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
                     }`}
                   >
-                    <Icon className="w-4 h-4" />
+                    <Icon className={`w-4 h-4 ${isAI ? 'text-indigo-600' : ''}`} />
                     <span>{item.label}</span>
                   </button>
                 );
@@ -111,19 +118,26 @@ export default function Header({ userEmail, activeTab, setActiveTab }: HeaderPro
         {navItems.map((item) => {
           const Icon = item.icon;
           const isActive = activeTab === item.id;
+          const isAI = item.id === 'ai-report';
           return (
             <button
               key={item.id}
               onClick={() => setActiveTab(item.id)}
-              className={`flex flex-col items-center justify-center py-1 px-1 rounded-xl transition cursor-pointer min-w-[54px] ${
+              className={`flex flex-col items-center justify-center py-1 px-1 rounded-xl transition cursor-pointer min-w-[48px] ${
                 isActive
-                  ? 'text-blue-600 font-bold'
+                  ? isAI
+                    ? 'text-indigo-600 font-bold'
+                    : 'text-blue-600 font-bold'
                   : 'text-slate-500 hover:text-slate-800'
               }`}
             >
               <div
                 className={`p-1 rounded-lg transition ${
-                  isActive ? 'bg-blue-50' : 'bg-transparent'
+                  isActive
+                    ? isAI
+                      ? 'bg-indigo-50 text-indigo-600'
+                      : 'bg-blue-50 text-blue-600'
+                    : 'bg-transparent'
                 }`}
               >
                 <Icon className={`w-4 h-4 ${isActive ? 'stroke-[2.5]' : 'stroke-[1.8]'}`} />

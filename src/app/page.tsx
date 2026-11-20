@@ -11,6 +11,7 @@ import AccountManagement from '@/components/AccountManagement';
 import BudgetManagement from '@/components/BudgetManagement';
 import ExcelImportModal from '@/components/ExcelImportModal';
 import AnalyticsDashboard from '@/components/AnalyticsDashboard';
+import AIReportView from '@/components/AIReportView';
 import { RefreshCw, Sparkles, AlertCircle } from 'lucide-react';
 
 /**
@@ -20,10 +21,10 @@ export default function Home() {
   const router = useRouter();
   const supabase = createClient();
 
-  // 사용자 정보 및 활성 탭 (transactions | accounts | dashboard | budget | import)
+  // 사용자 정보 및 활성 탭 (transactions | accounts | dashboard | ai-report | budget | import)
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'transactions' | 'dashboard' | 'accounts' | 'budget' | 'import'>('transactions');
+  const [activeTab, setActiveTab] = useState<'transactions' | 'dashboard' | 'accounts' | 'budget' | 'import' | 'ai-report'>('transactions');
 
   // 현재 조회 기준 월 (YYYY-MM 형식)
   const [currentMonth, setCurrentMonth] = useState<string>('');
@@ -176,29 +177,6 @@ export default function Home() {
   };
 
   /**
-   * 거래내역 단건 삭제
-   */
-  const handleDeleteTransaction = async (id: string) => {
-    if (!confirm('정말로 이 내역을 삭제하시겠습니까?')) {
-      return;
-    }
-
-    try {
-      const { error } = await supabase.from('transactions').delete().eq('id', id);
-
-      if (error) {
-        alert(`삭제 실패: ${error.message}`);
-      } else {
-        // 성공 시 목록과 자산 잔액 즉시 갱신
-        fetchTransactions();
-        fetchBaseData();
-      }
-    } catch (err: any) {
-      alert(`오류: ${err.message}`);
-    }
-  };
-
-  /**
    * 카테고리가 비어있을 때 네이버 가계부 기본 카테고리 수동 시딩
    */
   const handleSeedDefaults = async () => {
@@ -295,7 +273,7 @@ export default function Home() {
         )}
 
         {/* 탭별 뷰 렌더링 */}
-        {loading && transactions.length === 0 ? (
+        {loading && transactions.length === 0 && activeTab === 'transactions' ? (
           <div className="flex flex-col items-center justify-center py-24 text-slate-400">
             <RefreshCw className="w-8 h-8 animate-spin text-emerald-600 mb-3" />
             <p className="text-sm">가계부 데이터를 불러오는 중입니다...</p>
@@ -338,7 +316,15 @@ export default function Home() {
               />
             )}
 
-            {/* [탭 4] 네이버 가계부 스타일 '예산쓰기' & '예산반성' */}
+            {/* [탭 4] AI 지출 분석 & 스마트 재무 보고서 */}
+            {activeTab === 'ai-report' && (
+              <AIReportView
+                currentMonth={currentMonth || new Date().toISOString().slice(0, 7)}
+                onMonthChange={setCurrentMonth}
+              />
+            )}
+
+            {/* [탭 5] 네이버 가계부 스타일 '예산쓰기' & '예산반성' */}
             {activeTab === 'budget' && (
               <BudgetManagement
                 categories={categories}
@@ -349,7 +335,7 @@ export default function Home() {
               />
             )}
 
-            {/* [탭 5] 네이버 가계부 / 엑셀 가져오기 */}
+            {/* [탭 6] 네이버 가계부 / 엑셀 가져오기 */}
             {activeTab === 'import' && (
               <ExcelImportModal
                 categories={categories}

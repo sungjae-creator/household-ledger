@@ -66,3 +66,32 @@ export interface Budget {
   created_at: string;
   updated_at: string;
 }
+
+// AI 실천 절약 액션 플랜
+export interface ActionPlan {
+  title: string;        // 실천 과제 제목 (예: "배달음식 주 1회로 줄이기")
+  target_amount: number;// 예상 절약 가능 금액 (예: 80000)
+  tip: string;          // 구체적인 실천 팁
+}
+
+// AI 카테고리별 세부 진단 결과
+export interface CategoryInsight {
+  category: string;     // 카테고리명 (예: "식비")
+  status: 'WARNING' | 'GOOD' | 'NORMAL'; // 상태 (주의 / 칭찬 / 보통)
+  comment: string;      // 평가 코멘트
+}
+
+// AI 스마트 지출 분석 보고서 정보
+export interface AIReport {
+  id: string;
+  user_id: string;
+  year_month: string;   // YYYY-MM (예: '2026-11')
+  score: number;        // 가계부 재무 건강 점수 (0~100)
+  grade: string;        // 재무 등급 (A+, A, B, C 등)
+  summary: string;      // 종합 진단 한줄평
+  action_plans: ActionPlan[]; // 다음 달 실천 절약 팁 3가지
+  category_insights: CategoryInsight[]; // 카테고리별 세부 진단
+  full_report?: string | null; // 마크다운 전문
+  created_at: string;
+  updated_at: string;
+}
