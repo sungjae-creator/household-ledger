@@ -117,7 +117,7 @@ export default function AnalyticsDashboard({
   // 분류별 지출에서 선택된 대분류 이름 (기본값: 지출 1위 대분류)
   const [selectedMajorCategory, setSelectedMajorCategory] = useState<string>('');
 
-  // [신규 요청] 결제 수단별 지출 탭: 'CASH' (현금 및 결제 계좌) | 'CARD' (카드)
+  // 결제 수단별 지출 탭: 'CASH' (현금 및 결제 계좌) | 'CARD' (카드)
   const [paymentTab, setPaymentTab] = useState<'CASH' | 'CARD'>('CASH');
 
   // 연간 분석 기준 연도 (기본값: 현재 선택된 월의 연도)
@@ -149,7 +149,7 @@ export default function AnalyticsDashboard({
   const handleNextMonth = () => {
     if (!setCurrentMonth || !currentMonth) return;
     let [year, month] = currentMonth.split('-').map(Number);
-    month -= 1;
+    month += 1;
     if (month > 12) {
       month = 1;
       year += 1;
@@ -292,14 +292,12 @@ export default function AnalyticsDashboard({
   }, [monthlyExpenseTransactions, monthlyTotalExpense]);
 
   // =========================================================================
-  // (3) [신규 개편] 결제 수단별 지출 (현금/계좌 탭 vs 카드 탭)
+  // (3) 결제 수단별 지출 (현금/계좌 탭 vs 카드 탭)
   // =========================================================================
   const paymentMethodExpenseData = useMemo(() => {
-    // 1) 카드 지출 맵 (CARD)
     const cardMap: { [cardName: string]: number } = {};
     let totalCard = 0;
 
-    // 2) 현금 및 결제 계좌 지출 맵 (CASH, BANK)
     const cashMap: { [cashName: string]: { amount: number; type: string } } = {};
     let totalCash = 0;
 
@@ -319,7 +317,6 @@ export default function AnalyticsDashboard({
           totalCash += amount;
         }
       } else {
-        // 결제수단 미지정 건은 현금 범주에 포함
         const fallbackName = '기타/미지정 현금';
         if (!cashMap[fallbackName]) {
           cashMap[fallbackName] = { amount: 0, type: 'CASH' };
@@ -814,14 +811,15 @@ export default function AnalyticsDashboard({
               </div>
 
               {/* ============================================================= */}
-              {/* 3) [신규 개편] 결제 수단별 지출 (현금 탭 vs 카드 탭)           */}
+              {/* 3) [모바일 최적화 완결] 결제 수단별 지출 (현금 vs 카드)        */}
               {/* ============================================================= */}
-              <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-xs">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
+              <div className="bg-white rounded-2xl p-4 sm:p-6 border border-slate-200 shadow-xs">
+                {/* 카드 상단: 타이틀 + 탭 버튼 및 총액 뱃지 */}
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5">
                   <div>
                     <h3 className="font-bold text-slate-800 flex items-center gap-2 text-base">
-                      <Wallet className="w-5 h-5 text-indigo-600" />
-                      결제 수단별 지출
+                      <Wallet className="w-5 h-5 text-indigo-600 shrink-0" />
+                      <span>결제 수단별 지출</span>
                     </h3>
                     <p className="text-xs text-slate-500 mt-0.5">
                       현금(출금통장 포함)과 신용/체크카드별 소비액을 나누어 정밀하게 분석합니다.
@@ -829,9 +827,9 @@ export default function AnalyticsDashboard({
                   </div>
 
                   {/* 현금 / 카드 탭 토글 & 총액 뱃지 */}
-                  <div className="flex flex-wrap items-center gap-2.5">
+                  <div className="flex flex-wrap items-center gap-2">
                     {/* 탭 버튼: 현금 vs 카드 */}
-                    <div className="flex items-center bg-slate-100 p-0.5 rounded-lg border border-slate-200">
+                    <div className="flex items-center bg-slate-100 p-0.5 rounded-lg border border-slate-200 shrink-0">
                       <button
                         onClick={() => setPaymentTab('CASH')}
                         className={`px-3 py-1.5 text-xs font-bold rounded-md transition-colors flex items-center gap-1.5 ${
@@ -840,7 +838,7 @@ export default function AnalyticsDashboard({
                             : 'text-slate-500 hover:text-slate-800'
                         }`}
                       >
-                        <Banknote className="w-3.5 h-3.5" />
+                        <Banknote className="w-3.5 h-3.5 shrink-0" />
                         <span>현금</span>
                       </button>
                       <button
@@ -851,14 +849,14 @@ export default function AnalyticsDashboard({
                             : 'text-slate-500 hover:text-slate-800'
                         }`}
                       >
-                        <CreditCard className="w-3.5 h-3.5" />
+                        <CreditCard className="w-3.5 h-3.5 shrink-0" />
                         <span>카드</span>
                       </button>
                     </div>
 
                     {/* 해당 탭 총 지출 뱃지 */}
                     <div
-                      className={`font-bold px-3 py-1.5 rounded-xl text-xs ${
+                      className={`font-bold px-3 py-1.5 rounded-xl text-xs whitespace-nowrap shrink-0 ${
                         paymentTab === 'CASH'
                           ? 'bg-emerald-50 text-emerald-700'
                           : 'bg-purple-50 text-purple-700'
@@ -873,7 +871,7 @@ export default function AnalyticsDashboard({
                   </div>
                 </div>
 
-                {/* [탭 1: 현금 및 결제 계좌 지출 목록] */}
+                {/* [탭 1: 현금 및 결제 계좌 지출 목록] - 모바일 균일 레이아웃 적용 */}
                 {paymentTab === 'CASH' && (
                   <div>
                     {paymentMethodExpenseData.cash.items.length === 0 ? (
@@ -881,41 +879,51 @@ export default function AnalyticsDashboard({
                         이번 달에 현금 또는 결제 계좌(출금통장)로 지출된 내역이 없습니다.
                       </div>
                     ) : (
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4">
                         {paymentMethodExpenseData.cash.items.map((item, idx) => (
                           <div
                             key={item.name}
-                            className="p-4 bg-slate-50/70 border border-slate-200/80 rounded-xl space-y-2"
+                            className="p-3.5 sm:p-4 bg-slate-50/70 border border-slate-200/80 rounded-xl flex flex-col justify-between"
                           >
-                            <div className="flex items-center justify-between text-xs">
-                              <div className="flex items-center gap-2 font-bold text-slate-800">
-                                {item.type === 'BANK' ? (
-                                  <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0" />
-                                ) : (
-                                  <Banknote className="w-4 h-4 text-emerald-600 shrink-0" />
-                                )}
-                                <span>{item.name}</span>
-                                <span className="text-[10px] bg-slate-200/60 text-slate-500 px-1.5 py-0.2 rounded font-normal">
+                            {/* 상단 1열: [아이콘 + 이름 + 뱃지] vs [금액] (2줄 줄바꿈/세로 깨짐 방지) */}
+                            <div className="flex items-center justify-between gap-2 mb-2">
+                              <div className="flex items-center gap-2 min-w-0 flex-1">
+                                <span className="shrink-0">
+                                  {item.type === 'BANK' ? (
+                                    <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 inline-block" />
+                                  ) : (
+                                    <Banknote className="w-4 h-4 text-emerald-600" />
+                                  )}
+                                </span>
+                                <span className="font-bold text-slate-800 text-xs sm:text-sm truncate whitespace-nowrap">
+                                  {item.name}
+                                </span>
+                                <span className="text-[10px] bg-slate-200/70 text-slate-600 px-1.5 py-0.5 rounded font-normal shrink-0 whitespace-nowrap">
                                   {item.type === 'BANK' ? '결제계좌' : '현금'}
                                 </span>
                               </div>
-                              <div className="flex items-center gap-2">
-                                <span className="text-slate-400 font-mono">{item.percentage}%</span>
-                                <span className="font-extrabold text-emerald-700 text-sm">
+
+                              <div className="shrink-0 text-right">
+                                <span className="font-extrabold text-emerald-700 text-xs sm:text-sm font-mono whitespace-nowrap">
                                   {item.amount.toLocaleString()}원
                                 </span>
                               </div>
                             </div>
 
-                            {/* 프로그레스 바 */}
-                            <div className="w-full h-2.5 bg-slate-200 rounded-full overflow-hidden">
-                              <div
-                                className="h-full rounded-full transition-all duration-500"
-                                style={{
-                                  width: `${item.percentage}%`,
-                                  backgroundColor: COLORS[idx % COLORS.length],
-                                }}
-                              />
+                            {/* 하단 2열: 프로그레스 바 게이지 & 우측 정렬 비중(%) */}
+                            <div className="flex items-center gap-2.5 pt-1">
+                              <div className="flex-1 h-2 bg-slate-200 rounded-full overflow-hidden">
+                                <div
+                                  className="h-full rounded-full transition-all duration-500"
+                                  style={{
+                                    width: `${item.percentage}%`,
+                                    backgroundColor: COLORS[idx % COLORS.length],
+                                  }}
+                                />
+                              </div>
+                              <span className="text-[11px] text-slate-400 font-mono shrink-0 w-11 text-right">
+                                {item.percentage}%
+                              </span>
                             </div>
                           </div>
                         ))}
@@ -924,7 +932,7 @@ export default function AnalyticsDashboard({
                   </div>
                 )}
 
-                {/* [탭 2: 카드별 지출 목록] */}
+                {/* [탭 2: 카드별 지출 목록] - 모바일 균일 레이아웃 적용 */}
                 {paymentTab === 'CARD' && (
                   <div>
                     {paymentMethodExpenseData.card.items.length === 0 ? (
@@ -932,37 +940,47 @@ export default function AnalyticsDashboard({
                         이번 달에 신용/체크카드로 결제된 지출 내역이 없습니다.
                       </div>
                     ) : (
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4">
                         {paymentMethodExpenseData.card.items.map((card, idx) => (
                           <div
                             key={card.name}
-                            className="p-4 bg-slate-50/70 border border-slate-200/80 rounded-xl space-y-2"
+                            className="p-3.5 sm:p-4 bg-slate-50/70 border border-slate-200/80 rounded-xl flex flex-col justify-between"
                           >
-                            <div className="flex items-center justify-between text-xs">
-                              <div className="flex items-center gap-2 font-bold text-slate-800">
-                                <CreditCard className="w-4 h-4 text-purple-600 shrink-0" />
-                                <span>{card.name}</span>
-                                <span className="text-[10px] bg-purple-100/60 text-purple-600 px-1.5 py-0.2 rounded font-normal">
+                            {/* 상단 1열: [아이콘 + 카드명 + 뱃지] vs [금액] (2줄 줄바꿈/세로 깨짐 방지) */}
+                            <div className="flex items-center justify-between gap-2 mb-2">
+                              <div className="flex items-center gap-2 min-w-0 flex-1">
+                                <span className="shrink-0">
+                                  <CreditCard className="w-4 h-4 text-purple-600" />
+                                </span>
+                                <span className="font-bold text-slate-800 text-xs sm:text-sm truncate whitespace-nowrap">
+                                  {card.name}
+                                </span>
+                                <span className="text-[10px] bg-purple-100/70 text-purple-600 px-1.5 py-0.5 rounded font-normal shrink-0 whitespace-nowrap">
                                   카드
                                 </span>
                               </div>
-                              <div className="flex items-center gap-2">
-                                <span className="text-slate-400 font-mono">{card.percentage}%</span>
-                                <span className="font-extrabold text-purple-700 text-sm">
+
+                              <div className="shrink-0 text-right">
+                                <span className="font-extrabold text-purple-700 text-xs sm:text-sm font-mono whitespace-nowrap">
                                   {card.amount.toLocaleString()}원
                                 </span>
                               </div>
                             </div>
 
-                            {/* 프로그레스 바 */}
-                            <div className="w-full h-2.5 bg-slate-200 rounded-full overflow-hidden">
-                              <div
-                                className="h-full rounded-full transition-all duration-500"
-                                style={{
-                                  width: `${card.percentage}%`,
-                                  backgroundColor: COLORS[idx % COLORS.length],
-                                }}
-                              />
+                            {/* 하단 2열: 프로그레스 바 게이지 & 우측 정렬 비중(%) */}
+                            <div className="flex items-center gap-2.5 pt-1">
+                              <div className="flex-1 h-2 bg-slate-200 rounded-full overflow-hidden">
+                                <div
+                                  className="h-full rounded-full transition-all duration-500"
+                                  style={{
+                                    width: `${card.percentage}%`,
+                                    backgroundColor: COLORS[idx % COLORS.length],
+                                  }}
+                                />
+                              </div>
+                              <span className="text-[11px] text-slate-400 font-mono shrink-0 w-11 text-right">
+                                {card.percentage}%
+                              </span>
                             </div>
                           </div>
                         ))}
@@ -1030,7 +1048,6 @@ export default function AnalyticsDashboard({
 
           {/* =================================================================== */}
           {/* [모바일 전용 뷰: block sm:hidden]                                   */}
-          {/* 모바일에서는 월별 주요 요약 카드만 전면에 시원하게 표시                 */}
           {/* =================================================================== */}
           <div className="block sm:hidden space-y-3">
             <div className="flex items-center justify-between px-1">
@@ -1056,7 +1073,6 @@ export default function AnalyticsDashboard({
                         : 'bg-slate-50/70 border-slate-200/60'
                     }`}
                   >
-                    {/* 상단: 월 뱃지 & 순잔여액 */}
                     <div className="flex items-center justify-between mb-2">
                       <div className="flex items-center gap-2">
                         <span className="font-black text-slate-900 text-sm bg-indigo-50 text-indigo-700 px-2.5 py-0.5 rounded-lg border border-indigo-100">
@@ -1082,7 +1098,6 @@ export default function AnalyticsDashboard({
                       </div>
                     </div>
 
-                    {/* 하단: 수입 / 지출 2단 분할 */}
                     {hasData ? (
                       <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-100 text-xs">
                         <div className="bg-emerald-50/50 p-2 rounded-xl">
@@ -1113,7 +1128,6 @@ export default function AnalyticsDashboard({
           {/* [PC/태블릿 전용 뷰: hidden sm:block]                                */}
           {/* =================================================================== */}
           <div className="hidden sm:block space-y-6">
-            {/* 1월~12월 월별 수입 vs 지출 비교 막대 그래프 (PC 전용) */}
             <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-xs">
               <div className="flex items-center justify-between gap-2 mb-6">
                 <div>
@@ -1158,7 +1172,6 @@ export default function AnalyticsDashboard({
               </div>
             </div>
 
-            {/* 1월~12월 상세 요약 테이블 (PC 전용 엑셀 피벗 시트 뷰) */}
             <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-xs">
               <h4 className="font-bold text-slate-800 text-sm mb-4 flex items-center gap-2">
                 <TableIcon className="w-4 h-4 text-indigo-600" />
