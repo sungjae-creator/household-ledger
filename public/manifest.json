@@ -1,9 +1,11 @@
 {
+  "id": "/",
   "name": "스마트 가계부",
   "short_name": "스마트가계부",
   "description": "수입·지출 관리부터 AI 재무 보고서까지 한 번에 관리하는 스마트 가계부",
   "start_url": "/",
   "display": "standalone",
+  "display_override": ["standalone", "window-controls-overlay"],
   "background_color": "#ffffff",
   "theme_color": "#2563eb",
   "orientation": "portrait",
